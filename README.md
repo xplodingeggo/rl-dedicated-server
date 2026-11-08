@@ -1,4 +1,4 @@
-# rl-dedicated
+# rl-dedicated-server
 
 A headless Rocket League server. It runs with no window, no rendering and no sound, and it does not need the game client open.
 
@@ -20,8 +20,8 @@ No game files are in this repo. The scripts patch the copy of the game you alrea
 ## Setup
 
 ```powershell
-git clone https://github.com/xplodingeggo/rl-dedicated
-cd rl-dedicated
+git clone https://github.com/xplodingeggo/rl-dedicated-server
+cd rl-dedicated-server
 python -m pip install -r requirements.txt
 .\setup.ps1 -Game 'C:\Program Files (x86)\Steam\steamapps\common\rocketleague'
 ```
