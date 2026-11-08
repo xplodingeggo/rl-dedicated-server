@@ -13,7 +13,7 @@ No game files are in this repo. The scripts patch the copy of the game you alrea
 
 ## Requirements
 
-- Windows, with Rocket League installed. Only the Steam build has been tested.
+- Windows, with Rocket League installed. Only the Steam build has been tested. Linux through Wine is described in the Linux section and has not been tested.
 - Python 3.10 or newer, plus the libraries in `requirements.txt` (`pefile` and `cryptography`).
 - About 11 GB of free disk space for the server copy. Textures and audio streams are not copied.
 
@@ -58,6 +58,23 @@ To stop both:
 Stop-Process -Name RocketLeague_Server
 Get-CimInstance Win32_Process -Filter "Name='python.exe'" | ? CommandLine -match lan_responder | % { Stop-Process -Id $_.ProcessId }
 ```
+
+## Linux
+
+**Untested.** The patchers are plain Python and run on Linux. The server itself is a Windows exe, so it runs under Wine. `setup.sh` and `run.sh` do what `setup.ps1` and `run.ps1` do:
+
+```bash
+python3 -m pip install -r requirements.txt
+./setup.sh ~/.local/share/Steam/steamapps/common/rocketleague   # the Windows game files, as installed by Steam
+./run.sh --name 'Friday league' --join-password letmein --admin-password s3cret --logs
+./run.sh --stop
+```
+
+- `run.sh` takes the same options as `run.ps1`: `--dir`, `--map`, `--name`, `--extra`, `--join-password`, `--admin-password`, `--logs`.
+- You need `wine` and Python 3.10 or newer. `mapurl.py` also needs tkinter (`python3-tk` on Debian and Ubuntu).
+- Wine uses `~/.wine` unless you set `WINEPREFIX`. Set it to Steam's Proton prefix to reuse that one: `WINEPREFIX=~/.local/share/Steam/steamapps/compatdata/252950/pfx ./run.sh`.
+- The server log is in the prefix: `$WINEPREFIX/drive_c/users/<user>/Documents/My Games/Rocket League/TAGame/Logs/`. `--logs` follows it with `tail -F`.
+- Open UDP ports 7777 and 14001 in your firewall for the PC running the server.
 
 ## Joining
 
