@@ -77,16 +77,37 @@ DevNet: TcpNetDriver_0 TcpNetDriver listening on port 7777
 Log: Bringing World Stadium_P.TheWorld up for play
 ```
 
+## Passwords
+
+Both are optional launch options of `run.ps1`:
+
+```powershell
+.\run.ps1 -JoinPassword letmein -AdminPassword s3cret
+```
+
+- `-JoinPassword`: players must enter it to join. The LAN browser shows the server as password protected.
+- `-AdminPassword`: a player becomes an admin by typing `!admin s3cret` in chat. The message is relayed as `!admin ****`, so the other players never see the password. Admins get the match admin menu and can use the chat commands below. Without `-AdminPassword` nobody is an admin.
+
+Passwords cannot contain spaces or quotes. They are passed on the server's command line, so any user on the PC running the server can read them in the process list. They travel unencrypted over the network, so use them on a network you trust. Admin status lasts until the player disconnects or the map changes; type `!admin` again after a `!map`.
+
 ## Chat commands
 
-Type these in the in-game chat while connected to the server:
+Admins can type these in the in-game chat:
 
 | Command | Effect |
 |---------|--------|
 | `!map Park_P` | Runs `servertravel Park_P?game=...?Lan?listen`. Everyone is moved to the new map. |
 | `!kick Name` | Kicks the player whose in-game name is `Name` (not case sensitive). |
 
-**There is no password: every connected player can use them.** Only run the server on a network you trust. Players are not asked to confirm anything. The command message is relayed to the other players like any other chat.
+Other players' commands are ignored. The command message is relayed to the other players like any other chat.
+
+Every chat message is also written to the server log as `Chat <player>: <text>`, so the `-Logs` window shows the chat. The server runs with `-forcelogflush`, so lines appear right away. The password in an `!admin` login is masked in the log too.
+
+### Map line generator
+
+`python mapurl.py` opens a window where you pick the map and the game settings (game mode such as Dropshot or Heatseeker, match length, max score, ball type, gravity, boost, rumble and the rest of the mutators, bots, skip replays) from a list and dropdowns. It builds the `!map ...` line, like `!map Park_P?GameTags=10Minutes,Ball_Puck?NumBots=3`; press Copy and paste it in the game chat. Pass `--game <folder>` if the server copy is not in `.\game`. The settings and their game tags are the ones Rocket Plugin uses (`mutators.py`). The game limits chat messages to 120 characters, so the window warns when a line is too long. The game mode and mutator options have not been tested in a real match yet.
+
+**Untested:** the server reading `GameTags`, `NumBots` and `noreplay` from the `!map` line. If a setting has no effect in a match, tell me which one.
 
 ## Choosing the map
 
@@ -133,10 +154,11 @@ The patched file is written as a new copy, `RocketLeague_Server.exe`.
 | `ProjectX`: `OnlineGameDedicatedServerRegistration_X.SendUpdateRequest` | Jumps straight to the return | Skips registration with PsyNet, which answers `AccessDenied` for unofficial servers. |
 | `ProjectX`: `GameSettingPlaylist_X.IsLanMatch` | `'LANMatch'` becomes `'PrivateMatch'` | The server downloads the `Server` playlist list, which has no `LANMatch` playlist. Without one, the match allows 0 players and every join fails with "server full". |
 | `TAGame`: `GameEvent_TA.Init` | `NetMode == 2` becomes `NetMode == 1` | The LAN listen server, which accepts LAN logins, only starts for a listen server (2). A dedicated server is 1. |
-| `TAGame`: `TextChatActor_TA.ServerSendMessageToPlayers` | The two guard statements at the top become a call to `HandleSignedMessageFinished` | Hands each chat message to the command parser. The chat relay itself is untouched. |
-| `TAGame`: `TextChatActor_TA.HandleSignedMessageFinished` | Body replaced by the command parser | A client-only function, so its body is free on the server. Runs `!map` and `!kick`. |
+| `TAGame`: `TextChatActor_TA.ServerSendMessageToPlayers` | The two guard statements at the top become a call to `GFxData_Products_TA.UpdateProductData` | Hands each chat message to the command parser. The chat relay itself is untouched. |
+| `TAGame`: `GFxData_Products_TA.UpdateProductData` | Body replaced by the command parser | A large menu function a server never runs, so its body is free. Handles `!admin <password>` (and hides the password from the relay), `!map` and `!kick`. |
 | `TAGame`: `TextChatActor_TA.SendSignedMessage` | Body replaced by a loop over `WorldInfo.AllControllers` | Client-only as well. Calls `KickPlayerForReason` on the player whose name matches. |
-| `TAGame`: `MatchAdminComponent_TA.IsMatchAdmin` | Body replaced by `return true` | Every player gets the match admin menu, not only the match owner. |
+| `TAGame`: `ListenServer_TA.GetCustomMatchSettings` | Body replaced by a read of `-JoinPassword=` into the returned settings | The game's own login check (`AllowPlayerLogin`) then rejects players whose password differs. |
+| `TAGame`: `MatchAdminComponent_TA.IsMatchAdmin` | Body replaced by `return PRI.bMatchAdmin` | Only players who logged in with `!admin` keep the match admin menu. |
 
 ### LAN browser (`lan_responder.py`)
 

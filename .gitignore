@@ -6,3 +6,4 @@ release/
 *.upk
 *.exe
 __pycache__/
+mapurl.json

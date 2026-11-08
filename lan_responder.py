@@ -4,7 +4,7 @@ The game's LAN browser broadcasts a LanMessage_HostQuery_X to UDP 14001 and list
 LanMessage_HostResponse_X that echoes its nonce. A dedicated server never starts its own responder
 (UdpLanServer_X), so this script answers instead; picking the match runs `open <ServerID>?Lan?...`.
 
-usage: python lan_responder.py [map] [server name] [-v]
+usage: python lan_responder.py [map] [server name] [-p] [-v]   (-p: list the server as password protected)
 """
 import json
 import re
@@ -15,8 +15,9 @@ import sys
 PORT = 14001
 GAME_PORT = 7777
 RESPONSE = b'ProjectX.LanMessage_HostResponse_X'
-args = [a for a in sys.argv[1:] if a != '-v']
+args = [a for a in sys.argv[1:] if a not in ('-v', '-p')]
 VERBOSE = '-v' in sys.argv
+PASSWORD = '-p' in sys.argv
 MAP = args[0] if args else 'Stadium_P'
 NAME = args[1] if len(args) > 1 else 'Dedicated server'
 
@@ -47,7 +48,7 @@ def response(query, server_id):
     build = re.search(r'"BuildID"\s*:\s*(-?\d+)', query)
     if not nonce:
         return None
-    meta = json.dumps({'ServerName': NAME, 'ServerMap': MAP, 'bPassword': False, 'NumPlayers': 0,
+    meta = json.dumps({'ServerName': NAME, 'ServerMap': MAP, 'bPassword': PASSWORD, 'NumPlayers': 0,
                        'MaxPlayers': 6, 'BuildID': int(build.group(1)) if build else 0},
                       separators=(',', ':'))  # the game's JSON has no spaces
     body = '{"Nonce":%s,"Result":{"Address":""},"ServerID":%s,"MetaData":%s}' % (

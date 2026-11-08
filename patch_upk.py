@@ -11,8 +11,9 @@ Rocket League packages: header tables are AES-256 encrypted (ECB, or CTR with a 
 export data lives in zlib-compressed chunks. Only the touched chunks are recompressed; the chunk table
 in the header is updated and the header re-encrypted, so the file keeps its original framing.
 
-Plus one edit in TAGame.upk:
+Plus edits in TAGame.upk:
   * GameEvent_TA.Init: start the LAN listen server (LAN browser responder) on a dedicated server too.
+  * Chat commands, the `!admin <password>` login and the -JoinPassword / -AdminPassword command line options (see chat_hook).
 
 usage: python patch_upk.py <CookedPCConsole in> <CookedPCConsole out> [map]
 """
@@ -259,27 +260,85 @@ def tagame_edits(pkg, url):
 
     yield from chat_hook(pkg, url)
 
-    # MatchAdminComponent_TA.IsMatchAdmin(PRI) normally says yes only for the match owner. It now always returns true,
-    # so UpdatePlayer sets PRI_TA.bMatchAdmin for every player and each client gets the match admin menu.
+    yield from password_edits(pkg)
+
+    # MatchAdminComponent_TA.IsMatchAdmin(PRI) normally says yes only for the match owner, which a dedicated server lacks.
+    # It now returns PRI.bMatchAdmin: UpdatePlayer keeps whatever the `!admin <password>` chat login set with SetMatchAdmin.
     off, size = pkg.export('MatchAdminComponent_TA.IsMatchAdmin')
     b = bytearray(pkg.img[off:off + size])
     code_len = i32(b, 0x2c)
     assert b[0x30:0x32] == b'\x07\x35' and b[0x30 + code_len - 1] == 0x4c, 'IsMatchAdmin not as expected (already patched or game updated)'
-    b[0x30:0x30 + code_len] = b'\x04\x27' + b'\x0b' * (code_len - 3) + b'\x4c'
-    struct.pack_into('<i', b, 0x28, code_len)   # memory size: no references left
+    out = E(b'\x04\x5e\x19\x00\x2b', Ref(48581), b'\x09\x00', Ref(57518), b'\x00\x01', Ref(57518))   # return PRI.bMatchAdmin
+    pad = code_len - 1 - len(out[0])
+    struct.pack_into('<i', b, 0x28, mem(out) + pad + 1)
+    b[0x30:0x30 + code_len] = out[0] + b'\x0b' * pad + b'\x4c'
     yield off, bytes(b)
 
 
-def chat_hook(pkg, url):
-    # Chat commands. The relay in TextChatActor_TA.ServerSendMessageToPlayers stays intact; its two leading guard
-    # statements (client check, sanity check) are replaced by a call to HandleSignedMessageFinished(Staged.MessageObject,
-    # Staged.ForbiddenPlayers). That function only runs on clients (it finishes signing an outgoing message), so its body
-    # is free on the server and becomes the command parser:
-    #   if (Left(text, 5) ~= "!map ") ConsoleCommand("servertravel " $ Mid(text, 5, 255) $ "<url options>");
-    # Jump targets are memory offsets, where every 4-byte reference takes 8 bytes: the replacement keeps the old
-    # serialized size and the old reference count, so no other offset in the function moves.
-    R = lambda v: struct.pack('<i', v)
+class Ref(int):
+    """A reference to an object, name or property: 4 bytes serialized, 8 in memory."""
 
+
+def E(*parts):
+    """Join bytes, Refs and (bytes, refs) pieces -> (bytes, number of references)."""
+    data, refs = b'', 0
+    for x in parts:
+        if isinstance(x, Ref):
+            data += struct.pack('<i', x); refs += 1
+        elif isinstance(x, tuple):
+            data += x[0]; refs += x[1]
+        else:
+            data += x
+    return data, refs
+
+
+def mem(t): return len(t[0]) + 4 * t[1]   # size in memory, which is what jump targets and Context skips count
+
+
+def ctxm(local, member):   # local.member
+    return E(b'\x19\x00\x2b', Ref(local), b'\x09\x00', Ref(member), b'\x00\x01', Ref(member))
+
+
+def parse_arg(key, out):   # EngineShare_X.ParseCommandlineString(key, out): the value of -key=value on the command line
+    inner = E(b'\x1c', Ref(-2591), lit(key), out, b'\x48\x16')
+    return E(b'\x5e\x12\x00\x20', Ref(-1041), struct.pack('<H', mem(inner)), Ref(-371), b'\x00', inner)
+
+
+def assemble(items):
+    """items: ('stmt', piece) | ('jn', label, cond) = if (!cond) goto label | ('j', label) | ('lbl', name) -> (bytes, refs)"""
+    sizes = {'stmt': lambda i: mem(i[1]), 'jn': lambda i: 3 + mem(i[2]), 'j': lambda i: 3, 'lbl': lambda i: 0}
+    labels, at = {}, 0
+    for i in items:
+        if i[0] == 'lbl':
+            labels[i[1]] = at
+        at += sizes[i[0]](i)
+    parts = []
+    for i in items:
+        if i[0] == 'stmt':
+            parts.append(i[1])
+        elif i[0] == 'jn':
+            parts += [b'\x07' + struct.pack('<H', labels[i[1]]), i[2]]
+        elif i[0] == 'j':
+            parts.append(b'\x06' + struct.pack('<H', labels[i[1]]))
+    return E(*parts)
+
+
+def chat_hook(pkg, url):
+    # Chat commands and the admin login. The relay in TextChatActor_TA.ServerSendMessageToPlayers stays intact; its two
+    # leading guard statements (client check, sanity check) are replaced by a call to H(Staged.MessageObject), where H is
+    # GFxData_Products_TA.UpdateProductData: a large menu function a server never runs, so its body is free. It runs on the
+    # chat actor of the player who sent the message, and its body is the parser:
+    #   if (Left(text, 7) ~= "!admin ") {                       -- everyone may try this
+    #       if (-AdminPassword=<pw> was given && Mid(text, 7, 255) == pw) OwnerPC.PlayerReplicationInfo.SetMatchAdmin(true);
+    #       text = "!admin ****";                               -- the relay below would show the password to everyone
+    #   } else if (OwnerPC.PlayerReplicationInfo.bMatchAdmin) {
+    #       if (Left(text, 5) ~= "!map ") ConsoleCommand("servertravel " $ Mid(text, 5, 255) $ "<url options>");
+    #       if (Left(text, 6) ~= "!kick ") SendSignedMessage(Mid(text, 6, 255));    -- its body is the kick loop below
+    #   }
+    #   Log("Chat <name>: " $ text);
+    # Jump targets and Context skips are memory sizes, where every 4-byte reference takes 8 bytes. The call replacing the
+    # guards keeps the old memory size (padded with harmless statements), so no other offset in the function moves.
+    H, P, SAN = Ref(38976), 38975, 38947   # H and its parameter (the message object) and its string local
     off, size = pkg.export('TextChatActor_TA.ServerSendMessageToPlayers')
     b = bytearray(pkg.img[off:off + size])
     tail = bytes.fromhex('040b 0f5e1900 01b3140100 0900 9ef9')    # end of the second guard, start of the relay
@@ -288,43 +347,59 @@ def chat_hook(pkg, url):
         'ServerSendMessageToPlayers not as expected (already patched or game updated)'
     old_len = b.find(tail) + 2 - head
     old_refs = (old_mem - old_len) // 4
-    # Staged is the local 0x114f5; MessageObject = 0x10dc4, ForbiddenPlayers = 0x10dc6
-    ctx = lambda member: b'\x19\x00\x2b' + R(0x114f5) + b'\x09\x00' + R(member) + b'\x00\x01' + R(member)
-    call = b'\x1c' + R(0x114ca) + ctx(0x10dc4) + ctx(0x10dc6) + b'\x16'
-    filler = b'\x0f\x2b' + R(0x114f4) + b'\x25'   # TimeStamp = 0: harmless, it is assigned again later; only adds a reference
-    extra = old_refs - 7
-    assert 0 <= extra and len(call) + extra * len(filler) <= old_len
-    new = call + filler * extra
+    # Staged is the local 0x114f5; MessageObject = 0x10dc4
+    call = E(b'\x1c', H, ctxm(0x114f5, 0x10dc4), b'\x16')
+    filler = b'\x0f\x2b' + struct.pack('<i', 0x114f4) + b'\x25'   # TimeStamp = 0: harmless, it is assigned again later; only adds a reference
+    extra = old_refs - call[1]
+    assert 0 <= extra and len(call[0]) + extra * len(filler) <= old_len
+    new = call[0] + filler * extra
     b[head:head + old_len] = new + b'\x0b' * (old_len - len(new))
     yield off, bytes(b)
 
-    off, size = pkg.export('TextChatActor_TA.HandleSignedMessageFinished')
+    off, size = pkg.export('GFxData_Products_TA.UpdateProductData')
     b = bytearray(pkg.img[off:off + size])
     code_len = i32(b, 0x2c)
-    assert b[0x30 + code_len - 3:0x30 + code_len] == b'\x04\x0b\x4c' and b[0x30:0x32] == b'\x07\x69', \
-        'HandleSignedMessageFinished not as expected (already patched or game updated)'
-    # each piece is (bytes, number of 4-byte references)
-    text = (b'\x5e\x35' + R(-4459) + R(-4300) + b'\x00\x00' + b'\x19\x00\x2b' + R(0x114c9) + b'\x09\x00' + R(-4731)
-            + b'\x00\x01' + R(-4731), 5)   # MessageObject.Payload.MessageText
+    assert b[0x30:0x32] == b'\x0f\x2b' and b[0x30 + code_len - 3:0x30 + code_len] == b'\x04\x0b\x4c', \
+        'UpdateProductData not as expected (already patched or game updated)'
+    payload = ctxm(P, -4731)
+    text = E(b'\x5e\x35', Ref(-4459), Ref(-4300), b'\x00\x00', payload)   # MessageObject.Payload.MessageText
     cut = lambda n: b'\x38\x3a\x24' + bytes([n])                      # int(byte n)
-    left = lambda n, s: (b'\xbf\x80' + text[0] + cut(n) + b'\x16' + lit(s) + b'\x16', 5)
-    mid = lambda n: (b'\xd0' + text[0] + cut(n) + cut(255) + b'\x16', 5)
+    left = lambda n, s: E(b'\xbf\x80', text, cut(n), b'\x16', lit(s), b'\x16')
+    mid = lambda n: E(b'\xd0', text, cut(n), cut(255), b'\x16')
+    pri = E(b'\x19\x00\x01', Ref(70835), b'\x09\x00', Ref(-3726), b'\x00\x01', Ref(-3726))   # OwnerPC.PlayerReplicationInfo
+    san = E(b'\x2b', Ref(SAN))
+    set_admin = E(b'\x1c', Ref(57963), b'\x27\x16')                   # PRI_TA.SetMatchAdmin(true)
+    is_admin = E(b'\x5e\x19\x00', pri, b'\x09\x00', Ref(57518), b'\x00\x01', Ref(57518))
     name = pkg.names.index('ConsoleCommand')
     # EatString(ReturnValue), virtual call, bWriteToLog = false
-    cmd = lambda arg, refs: (b'\x0e' + R(-4403) + b'\x1b' + R(name) + R(0) + arg + b'\x28\x16', refs + 1)
+    cmd = lambda arg: E(b'\x0e', Ref(-4403), b'\x1b', struct.pack('<ii', name, 0), arg, b'\x28\x16')   # a name is 8 bytes either way
     opts = '?' + url.split('?', 1)[1]
-    # SendSignedMessage(Message, ChatChannel, ForbiddenPlayers) is the kick loop below
-    parts = [(left(5, '!map '), cmd(b'\xf8\xf8' + lit('servertravel ') + mid(5)[0] + b'\x16' + lit(opts) + b'\x16', 5)),
-             (left(6, '!kick '), (b'\x1c' + R(0x114bf) + mid(6)[0] + b'\x24\x00\x2b' + R(0x114c8) + b'\x16', 7))]
-    out, at = b'', 0
-    for cond, stmt in parts:
-        at += 3 + sum(len(x) + 4 * r for x, r in (cond, stmt))
-        out += b'\x07' + struct.pack('<H', at) + cond[0] + stmt[0]
-    out += b'\x04\x0b'
-    assert len(out) < code_len, f'chat hook too long by {len(out) - code_len + 1} bytes'
-    pad = code_len - 1 - len(out)
-    struct.pack_into('<i', b, 0x28, at + 2 + pad + 1)   # memory size; the padding has no references
-    b[0x30:0x30 + code_len] = out + b'\x0b' * pad + b'\x4c'
+    # Log("Chat <name>: <text>"): runs after the login masked its password, so the log never holds it
+    log = E(b'\xe7\xf8\xf8\xf8', lit('Chat '), E(b'\x5e\x19\x00', pri, b'\x09\x00', Ref(-4435), b'\x00\x01', Ref(-4435)),
+            b'\x16', lit(': '), b'\x16', text, b'\x16', b'\x48\x48\x16')
+    items = [('jn', 'cmds', left(7, '!admin ')),
+             ('jn', 'mask', parse_arg('AdminPassword=', san)),
+             ('jn', 'grant', E(b'\xc0', mid(7), san, b'\x16')),    # != : the jump is taken when the password matches
+             ('j', 'mask'),
+             ('lbl', 'grant'),
+             ('stmt', E(b'\x5e\x19\x00', pri, struct.pack('<H', mem(set_admin)), Ref(0), b'\x00', set_admin)),
+             ('lbl', 'mask'),
+             ('stmt', E(b'\x0f\x5e\x35', Ref(-4459), Ref(-4300), b'\x00\x01', payload, lit('!admin ****'))),
+             ('j', 'end'),
+             ('lbl', 'cmds'),
+             ('jn', 'end', is_admin),
+             ('jn', 'notmap', left(5, '!map ')),
+             ('stmt', cmd(E(b'\xf8\xf8', lit('servertravel '), mid(5), b'\x16', lit(opts), b'\x16'))),
+             ('lbl', 'notmap'),
+             ('jn', 'end', left(6, '!kick ')),
+             ('stmt', E(b'\x1c', Ref(0x114bf), mid(6), b'\x16')),
+             ('lbl', 'end'),
+             ('stmt', log)]
+    out = assemble(items)
+    assert len(out[0]) + 3 <= code_len, f'chat hook too long by {len(out[0]) + 3 - code_len} bytes'
+    pad = code_len - 1 - len(out[0]) - 2
+    struct.pack_into('<i', b, 0x28, mem(out) + 2 + pad + 1)   # memory size; the padding has no references
+    b[0x30:0x30 + code_len] = out[0] + b'\x04\x0b' + b'\x0b' * pad + b'\x4c'
     yield off, bytes(b)
 
     # SendSignedMessage is client-only as well. Its body becomes the kick loop (its closure local `_0x1` is the loop variable):
@@ -335,24 +410,42 @@ def chat_hook(pkg, url):
     code_len = i32(b, 0x2c)
     assert b[0x30 + code_len - 3:0x30 + code_len] == b'\x04\x0b\x4c' and b[0x30:0x32] == b'\x0f\x2b', \
         'SendSignedMessage not as expected (already patched or game updated)'
-    M = lambda t: len(t[0]) + 4 * t[1]   # memory size
-    pc = R(0x114bb)
-    head = (b'\x2f\x5e\x19\x00\x12\x00\x20' + R(-977) + b'\x0a\x00' + R(-3813) + b'\x00\x1c' + R(-2447) + b'\x16', 3)  # WorldInfo.GetWorldInfo()
-    allc = (b'\x1c' + R(-2433) + b'\x20' + R(-1172) + b'\x2b' + pc + b'\x16', 3)   # .AllControllers(class'PlayerController_X', PC)
-    pri_name = (b'\x5e\x19\x00\x19\x00\x2b' + pc + b'\x09\x00' + R(-3726) + b'\x00\x01' + R(-3726)
-                + b'\x09\x00' + R(-4435) + b'\x00\x01' + R(-4435))
-    cond = (b'\xbf' + pri_name + b'\x2b' + R(0x114be) + b'\x16', 6)
-    kcall = b'\x1c' + R(-3221) + lit('TAGame.Lan.HostExited') + b'\x48\x16'
-    kick = (b'\x5e\x19\x00\x2b' + pc + struct.pack('<H', 4 + len(kcall)) + R(0) + b'\x00' + kcall, 3)
-    start = M(head) + 11 + M(allc) + 2       # memory offset of the loop body
-    end = start + 3 + M(cond) + M(kick)      # IteratorNext; IteratorPop follows it
-    skip = M(allc) + 2 + (end - start) + 2
-    out = (head[0] + struct.pack('<H', skip) + R(0) + b'\x00' + allc[0] + struct.pack('<H', end + 1)
-           + b'\x07' + struct.pack('<H', end) + cond[0] + kick[0] + b'\x31\x30\x04\x0b')
-    assert len(out) < code_len, f'kick loop too long by {len(out) - code_len + 1} bytes'
-    pad = code_len - 1 - len(out)
-    struct.pack_into('<i', b, 0x28, end + 4 + pad + 1)
-    b[0x30:0x30 + code_len] = out + b'\x0b' * pad + b'\x4c'
+    pc = Ref(0x114bb)
+    head = E(b'\x2f\x5e\x19\x00\x12\x00\x20', Ref(-977), b'\x0a\x00', Ref(-3813), b'\x00\x1c', Ref(-2447), b'\x16')  # WorldInfo.GetWorldInfo()
+    allc = E(b'\x1c', Ref(-2433), b'\x20', Ref(-1172), b'\x2b', pc, b'\x16')   # .AllControllers(class'PlayerController_X', PC)
+    pri_name = E(b'\x5e\x19\x00\x19\x00\x2b', pc, b'\x09\x00', Ref(-3726), b'\x00\x01', Ref(-3726),
+                 b'\x09\x00', Ref(-4435), b'\x00\x01', Ref(-4435))
+    cond = E(b'\xbf', pri_name, b'\x2b', Ref(0x114be), b'\x16')
+    kcall = E(b'\x1c', Ref(-3221), lit('TAGame.Lan.HostExited'), b'\x48\x16')
+    kick = E(b'\x5e\x19\x00\x2b', pc, struct.pack('<H', mem(kcall)), Ref(0), b'\x00', kcall)
+    start = mem(head) + 11 + mem(allc) + 2       # memory offset of the loop body
+    end = start + 3 + mem(cond) + mem(kick)      # IteratorNext; IteratorPop follows it
+    skip = mem(allc) + 2 + (end - start) + 2
+    out = E(head, struct.pack('<H', skip), Ref(0), b'\x00', allc, struct.pack('<H', end + 1),
+            b'\x07', struct.pack('<H', end), cond, kick, b'\x31\x30\x04\x0b')
+    assert len(out[0]) < code_len, f'kick loop too long by {len(out[0]) - code_len + 1} bytes'
+    pad = code_len - 1 - len(out[0])
+    struct.pack_into('<i', b, 0x28, mem(out) + pad + 1)
+    b[0x30:0x30 + code_len] = out[0] + b'\x0b' * pad + b'\x4c'
+    yield off, bytes(b)
+
+
+def password_edits(pkg):
+    # Join password. ListenServer_TA.AllowPlayerLogin rejects a joining player unless the `Password` URL option equals
+    # GetCustomMatchSettings().Password, when that is not empty. The server has no profile, so the settings came back empty.
+    # GetCustomMatchSettings now fills only the password, from the -JoinPassword=<pw> command line option:
+    #   ParseCommandlineString("JoinPassword=", ReturnValue.Password);  return ReturnValue;
+    off, size = pkg.export('ListenServer_TA.GetCustomMatchSettings')
+    b = bytearray(pkg.img[off:off + size])
+    code_len = i32(b, 0x2c)
+    assert b[0x30:0x32] == b'\x04\x5e' and b[0x30 + code_len - 7:0x30 + code_len - 5] == b'\x04\x3a', \
+        'GetCustomMatchSettings not as expected (already patched or game updated)'
+    ret = Ref(i32(b, 0x30 + code_len - 5))
+    out = E(parse_arg('JoinPassword=', E(b'\x5e\x35', Ref(-4452), Ref(-4296), b'\x00\x01\x2b', ret)), b'\x04\x3a', ret)
+    pad = code_len - 1 - len(out[0])
+    assert pad >= 0, 'GetCustomMatchSettings replacement too long'
+    struct.pack_into('<i', b, 0x28, mem(out) + pad + 1)
+    b[0x30:0x30 + code_len] = out[0] + b'\x0b' * pad + b'\x4c'
     yield off, bytes(b)
 
 
