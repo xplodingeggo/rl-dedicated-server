@@ -4,5 +4,6 @@
 param([string]$Dir = "$PSScriptRoot\game", [string]$Map = 'Stadium_P', [string]$Name = 'Dedicated server', [string]$Extra = '')
 $g = "$Dir\Binaries\Win64"
 if (-not (Test-Path "$g\RocketLeague_Server.exe")) { throw "No server build in $Dir - run setup.ps1 first" }
-Start-Process "$g\RocketLeague_Server.exe" -WorkingDirectory $g -PassThru -ArgumentList "server $Map`?game=TAGame.GameInfo_Soccar_TA`?Lan`?listen -FakeServer -noeac -nullrhi -nosound -unattended -log -nostartupmovies $Extra"
+# Hidden: clicking into the -log console window starts a text selection, which pauses console writes and freezes the server.
+Start-Process "$g\RocketLeague_Server.exe" -WorkingDirectory $g -WindowStyle Hidden -PassThru -ArgumentList "server $Map`?game=TAGame.GameInfo_Soccar_TA`?Lan`?listen -FakeServer -noeac -nullrhi -nosound -unattended -log -nostartupmovies $Extra"
 Start-Process python -WindowStyle Hidden -PassThru -ArgumentList '-X', 'utf8', '-I', "`"$PSScriptRoot\lan_responder.py`"", $Map, "`"$Name`""
