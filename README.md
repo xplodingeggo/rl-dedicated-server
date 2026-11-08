@@ -52,11 +52,10 @@ This starts two processes in the background, with no windows:
 - the server itself
 - `lan_responder.py`, which answers the game's LAN browser searches for it
 
-To stop both:
+To stop everything (the server, the LAN responder and the log windows):
 
 ```powershell
-Stop-Process -Name RocketLeague_Server
-Get-CimInstance Win32_Process -Filter "Name='python.exe'" | ? CommandLine -match lan_responder | % { Stop-Process -Id $_.ProcessId }
+.\stop.ps1
 ```
 
 ## Linux
