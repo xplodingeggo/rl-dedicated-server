@@ -11,7 +11,10 @@ Rocket League packages: header tables are AES-256 encrypted (ECB, or CTR with a 
 export data lives in zlib-compressed chunks. Only the touched chunks are recompressed; the chunk table
 in the header is updated and the header re-encrypted, so the file keeps its original framing.
 
-usage: python patch_upk.py <ProjectX.upk in> <ProjectX.upk out> [map]
+Plus one edit in TAGame.upk:
+  * GameEvent_TA.Init: start the LAN listen server (LAN browser responder) on a dedicated server too.
+
+usage: python patch_upk.py <CookedPCConsole in> <CookedPCConsole out> [map]
 """
 import struct
 import sys
@@ -24,7 +27,7 @@ FLAG_CTR = 0x0800
 # Rocket League's package key (public; the same one every RL package tool ships).
 KEY = bytes([199, 223, 107, 19, 37, 42, 204, 113, 71, 187, 81, 201, 138, 215, 227, 75,
              127, 229, 0, 183, 127, 165, 250, 178, 147, 226, 242, 78, 107, 23, 231, 121])
-URL = '{}?game=TAGame.GameInfo_Soccar_TA?Private?playtest?listen'
+URL = '{}?game=TAGame.GameInfo_Soccar_TA?Lan?listen'  # ?Lan -> MatchType_Lan_TA, so the LAN browser can list it
 
 
 def i32(b, o): return struct.unpack_from('<i', b, o)[0]
@@ -212,7 +215,7 @@ def lit(s):
     return b'\x1f' + s.encode() + b'\x00'
 
 
-def edits(pkg, url):
+def projectx_edits(pkg, url):
     off, size = pkg.export('OnlineGameDedicatedServer_X.Inactive.BeginState')
     b = bytearray(pkg.img[off:off + size])
     old_log = lit('bQueuedShutdown while entering InActive state, so just quit')
@@ -234,10 +237,28 @@ def edits(pkg, url):
     b[0x30:0x33] = b'\x06\x3d\x00'
     yield off, bytes(b)
 
+    # GameSettingPlaylist_X.IsLanMatch: Name == 'LANMatch' -> Name == 'PrivateMatch'. The server downloads the
+    # "Server" playlist config, which has no LANMatch, so MatchType_Lan_TA found no playlist and the match had
+    # 0 max players ("server full"). A NameConst is a fixed-size name index, so this stays length-neutral.
+    off, size = pkg.export('GameSettingPlaylist_X.IsLanMatch')
+    b = bytearray(pkg.img[off:off + size])
+    old = b'\x21' + struct.pack('<i', pkg.names.index('LANMatch'))
+    assert b.count(old) == 1, 'IsLanMatch not as expected (already patched or game updated)'
+    yield off, bytes(b.replace(old, b'\x21' + struct.pack('<i', pkg.names.index('PrivateMatch'))))
 
-def main():
-    src, dst = sys.argv[1], sys.argv[2]
-    url = URL.format(sys.argv[3] if len(sys.argv) > 3 else 'Stadium_P')
+
+def tagame_edits(pkg, url):
+    # GameEvent_TA.Init: `if (IsPlayingLan() && NetMode == NM_ListenServer) InitListenServer()`.
+    # A dedicated server is NM_DedicatedServer (1); without this it never answers LAN browser searches.
+    off, size = pkg.export('GameEvent_TA.Init')
+    b = bytearray(pkg.img[off:off + size])
+    old = b'\x38\x3a\x24\x02\x16\x16'   # int(byte 2) ) )
+    assert b.count(old) == 1, 'GameEvent_TA.Init not as expected (already patched or game updated)'
+    b = b.replace(old, b'\x38\x3a\x24\x01\x16\x16')
+    yield off, bytes(b)
+
+
+def patch(src, dst, edits, url):
     pkg = Package(open(src, 'rb').read())
     done = list(edits(pkg, url))
     for off, data in done:
@@ -247,7 +268,15 @@ def main():
     for off, data in done:
         assert check.img[off:off + len(data)] == data, 'round trip failed'
     open(dst, 'wb').write(out)
-    print(f'patched {len(done)} exports -> {dst} (travel URL: {url})')
+    print(f'patched {len(done)} exports -> {dst}')
+
+
+def main():
+    src, dst = sys.argv[1], sys.argv[2]
+    url = URL.format(sys.argv[3] if len(sys.argv) > 3 else 'Stadium_P')
+    patch(f'{src}/ProjectX.upk', f'{dst}/ProjectX.upk', projectx_edits, url)
+    patch(f'{src}/TAGame.upk', f'{dst}/TAGame.upk', tagame_edits, url)
+    print(f'travel URL: {url}')
 
 
 if __name__ == '__main__':

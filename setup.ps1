@@ -18,8 +18,8 @@ Get-ChildItem "$Game\TAGame" -Force | ? { $_.Name -ne 'CookedPCConsole' } | % { 
 # The game scans CookedPCConsole recursively, so mod-manager folders are left out to avoid duplicate packages.
 robocopy "$Game\TAGame\CookedPCConsole" "$Out\TAGame\CookedPCConsole" *.upk *.bin *.udk *.bnk *.ebnk *.py /XD mods Backups .hebnix-menu-map /NFL /NDL /NJH /NP /MT:16 | Out-Null
 if ($LASTEXITCODE -ge 8) { throw "robocopy failed ($LASTEXITCODE)" }
-python -X utf8 -I "$PSScriptRoot\patch_upk.py" "$Game\TAGame\CookedPCConsole\ProjectX.upk" "$Out\TAGame\CookedPCConsole\ProjectX.upk" $Map
-if ($LASTEXITCODE) { throw 'ProjectX.upk patch failed' }
+python -X utf8 -I "$PSScriptRoot\patch_upk.py" "$Game\TAGame\CookedPCConsole" "$Out\TAGame\CookedPCConsole" $Map
+if ($LASTEXITCODE) { throw 'package patch failed' }
 python -X utf8 -I "$PSScriptRoot\patch_exe.py" "$Game\Binaries\Win64\RocketLeague.exe" "$Out\Binaries\Win64\RocketLeague_Server.exe"
 if ($LASTEXITCODE) { throw 'exe patch failed' }
 "Server copy ready: $Out   start it with .\run.ps1 -Dir '$Out' -Map $Map"
