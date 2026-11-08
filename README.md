@@ -42,7 +42,10 @@ If PowerShell blocks the scripts, run them as `powershell -ExecutionPolicy Bypas
 .\run.ps1                          # uses .\game
 .\run.ps1 -Dir D:\somewhere        # if you used -Out during setup
 .\run.ps1 -Name 'Friday league'    # the name shown in the LAN browser
+.\run.ps1 -Logs                    # also open a window that follows the server log
 ```
+
+The server's own console window stays hidden. Clicking into a console window starts a text selection, and while it lasts Windows pauses writes to that console, which would freeze the server. The `-Logs` window follows the log file instead, so a selection there pauses only that window.
 
 This starts two processes in the background, with no windows:
 
