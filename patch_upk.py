@@ -19,9 +19,13 @@ usage: python patch_upk.py <CookedPCConsole in> <CookedPCConsole out> [map]
 """
 import struct
 import sys
+import os
 import zlib
 
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # python -I leaves the script folder out of the path
+from fs import find
 
 MAGIC = 0x9E2A83C1
 FLAG_CTR = 0x0800
@@ -465,8 +469,9 @@ def patch(src, dst, edits, url):
 def main():
     src, dst = sys.argv[1], sys.argv[2]
     url = URL.format(sys.argv[3] if len(sys.argv) > 3 else 'Stadium_P')
-    patch(f'{src}/ProjectX.upk', f'{dst}/ProjectX.upk', projectx_edits, url)
-    patch(f'{src}/TAGame.upk', f'{dst}/TAGame.upk', tagame_edits, url)
+    for name, edits in (('ProjectX.upk', projectx_edits), ('TAGame.upk', tagame_edits)):
+        # the copy keeps the name the game files have, whatever its case
+        patch(find(src, name), os.path.join(dst, os.path.basename(find(src, name))), edits, url)
     print(f'travel URL: {url}')
 
 

@@ -10,6 +10,7 @@ import sys
 import tkinter as tk
 from tkinter import filedialog, ttk
 
+from fs import find
 from mutators import BOTS, MODES, SETTINGS
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -31,7 +32,7 @@ def game_folder():
 
 def find_maps(game):
     """-> {map name: shown name} from the *_P.upk files in the game's CookedPCConsole folder"""
-    folder = os.path.join(game, 'TAGame', 'CookedPCConsole')
+    folder = find(game, 'TAGame', 'CookedPCConsole')
     maps = {}
     if os.path.isdir(folder):
         for f in os.listdir(folder):

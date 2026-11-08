@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Launch the headless server (under Wine) from the copy built by setup.sh, plus lan_responder.py for the LAN browser.
-#   ./run.sh [--dir ./game] [--map Stadium_P] [--name 'My server'] [--extra '...'] [--join-password pw] [--admin-password pw] [--logs]
+#   ./run.sh [--dir ./game] [--map Stadium_P] [--name 'My server'] [--extra '...'] [--join-password pw] [--admin-password pw] [--nolog]
 # Same options as run.ps1. Set WINEPREFIX to use a prefix other than ~/.wine, e.g. Steam's Proton one:
 #   WINEPREFIX=~/.local/share/Steam/steamapps/compatdata/252950/pfx ./run.sh
 # Stop it with ./run.sh --stop
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
-dir="$here/game"; map=Stadium_P; name='Dedicated server'; extra=''; join=''; admin=''; logs=0
+dir="$here/game"; map=Stadium_P; name='Dedicated server'; extra=''; join=''; admin=''; logs=1
 while [ $# -gt 0 ]; do
     case "$1" in
         --dir) dir="$2"; shift 2 ;;
@@ -15,7 +15,7 @@ while [ $# -gt 0 ]; do
         --extra) extra="$2"; shift 2 ;;
         --join-password) join="$2"; shift 2 ;;
         --admin-password) admin="$2"; shift 2 ;;
-        --logs) logs=1; shift ;;
+        --nolog) logs=0; shift ;;
         --stop) pkill -f RocketLeague_Server.exe || true; pkill -f lan_responder.py || true; exit 0 ;;
         *) echo "unknown option: $1" >&2; exit 1 ;;
     esac

@@ -42,10 +42,10 @@ If PowerShell blocks the scripts, run them as `powershell -ExecutionPolicy Bypas
 .\run.ps1                          # uses .\game
 .\run.ps1 -Dir D:\somewhere        # if you used -Out during setup
 .\run.ps1 -Name 'Friday league'    # the name shown in the LAN browser
-.\run.ps1 -Logs                    # also open a window that follows the server log
+.\run.ps1 -NoLog                   # do not open the window that follows the server log (it opens by default)
 ```
 
-The server's own console window stays hidden. Clicking into a console window starts a text selection, and while it lasts Windows pauses writes to that console, which would freeze the server. The `-Logs` window follows the log file instead, so a selection there pauses only that window.
+The server's own console window stays hidden. Clicking into a console window starts a text selection, and while it lasts Windows pauses writes to that console, which would freeze the server. The log window follows the log file instead, so a selection there pauses only that window.
 
 This starts two processes in the background, with no windows:
 
@@ -66,15 +66,16 @@ Get-CimInstance Win32_Process -Filter "Name='python.exe'" | ? CommandLine -match
 ```bash
 python3 -m pip install -r requirements.txt
 ./setup.sh ~/.local/share/Steam/steamapps/common/rocketleague   # the Windows game files, as installed by Steam
-./run.sh --name 'Friday league' --join-password letmein --admin-password s3cret --logs
+./run.sh --name 'Friday league' --join-password letmein --admin-password s3cret
 ./run.sh --stop
 ```
 
-- `run.sh` takes the same options as `run.ps1`: `--dir`, `--map`, `--name`, `--extra`, `--join-password`, `--admin-password`, `--logs`.
+- `run.sh` takes the same options as `run.ps1`: `--dir`, `--map`, `--name`, `--extra`, `--join-password`, `--admin-password`, `--nolog`.
 - You need `wine` and Python 3.10 or newer. `mapurl.py` also needs tkinter (`python3-tk` on Debian and Ubuntu).
 - Wine uses `~/.wine` unless you set `WINEPREFIX`. Set it to Steam's Proton prefix to reuse that one: `WINEPREFIX=~/.local/share/Steam/steamapps/compatdata/252950/pfx ./run.sh`.
-- The server log is in the prefix: `$WINEPREFIX/drive_c/users/<user>/Documents/My Games/Rocket League/TAGame/Logs/`. `--logs` follows it with `tail -F`.
+- The server log is in the prefix: `$WINEPREFIX/drive_c/users/<user>/Documents/My Games/Rocket League/TAGame/Logs/`. By default `run.sh` follows it with `tail -F` and stays in the foreground (Ctrl+C stops only the tail; the server keeps running). `--nolog` skips that.
 - Open UDP ports 7777 and 14001 in your firewall for the PC running the server.
+- File names are matched ignoring case (`fs.py`, and `ci` in `setup.sh`), so a Steam install with different capitalisation still works. Wine itself looks files up ignoring case; a folder holding two files that differ only by case is not handled.
 
 ## Joining
 
@@ -118,7 +119,7 @@ Admins can type these in the in-game chat:
 
 Other players' commands are ignored. The command message is relayed to the other players like any other chat.
 
-Every chat message is also written to the server log as `Chat <player>: <text>`, so the `-Logs` window shows the chat. The server runs with `-forcelogflush`, so lines appear right away. The password in an `!admin` login is masked in the log too.
+Every chat message is also written to the server log as `Chat <player>: <text>`, so the log window shows the chat. The server runs with `-forcelogflush`, so lines appear right away. The password in an `!admin` login is masked in the log too.
 
 ### Map line generator
 
