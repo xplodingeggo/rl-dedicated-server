@@ -259,6 +259,16 @@ def tagame_edits(pkg, url):
 
     yield from chat_hook(pkg, url)
 
+    # MatchAdminComponent_TA.IsMatchAdmin(PRI) normally says yes only for the match owner. It now always returns true,
+    # so UpdatePlayer sets PRI_TA.bMatchAdmin for every player and each client gets the match admin menu.
+    off, size = pkg.export('MatchAdminComponent_TA.IsMatchAdmin')
+    b = bytearray(pkg.img[off:off + size])
+    code_len = i32(b, 0x2c)
+    assert b[0x30:0x32] == b'\x07\x35' and b[0x30 + code_len - 1] == 0x4c, 'IsMatchAdmin not as expected (already patched or game updated)'
+    b[0x30:0x30 + code_len] = b'\x04\x27' + b'\x0b' * (code_len - 3) + b'\x4c'
+    struct.pack_into('<i', b, 0x28, code_len)   # memory size: no references left
+    yield off, bytes(b)
+
 
 def chat_hook(pkg, url):
     # Chat commands. The relay in TextChatActor_TA.ServerSendMessageToPlayers stays intact; its two leading guard

@@ -136,6 +136,7 @@ The patched file is written as a new copy, `RocketLeague_Server.exe`.
 | `TAGame`: `TextChatActor_TA.ServerSendMessageToPlayers` | The two guard statements at the top become a call to `HandleSignedMessageFinished` | Hands each chat message to the command parser. The chat relay itself is untouched. |
 | `TAGame`: `TextChatActor_TA.HandleSignedMessageFinished` | Body replaced by the command parser | A client-only function, so its body is free on the server. Runs `!map` and `!kick`. |
 | `TAGame`: `TextChatActor_TA.SendSignedMessage` | Body replaced by a loop over `WorldInfo.AllControllers` | Client-only as well. Calls `KickPlayerForReason` on the player whose name matches. |
+| `TAGame`: `MatchAdminComponent_TA.IsMatchAdmin` | Body replaced by `return true` | Every player gets the match admin menu, not only the match owner. |
 
 ### LAN browser (`lan_responder.py`)
 
