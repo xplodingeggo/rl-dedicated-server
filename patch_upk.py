@@ -257,32 +257,53 @@ def tagame_edits(pkg, url):
     b = b.replace(old, b'\x38\x3a\x24\x01\x16\x16')
     yield off, bytes(b)
 
-    yield chat_hook(pkg, url)
+    yield from chat_hook(pkg, url)
 
 
 def chat_hook(pkg, url):
-    # Chat commands. TextChatActor_TA.ServerSendMessageToPlayers runs on the server for every chat message; its body
-    # becomes
-    #   if (Left(text, 5) ~= "!map ")  ConsoleCommand("servertravel " $ Mid(text, 5, 255) $ "<url options>");
-    #   if (Left(text, 6) ~= "!kick ") ConsoleCommand("kick " $ Mid(text, 6, 255));
-    # padded with Nothing tokens to the old length. Chat is therefore no longer relayed between players.
+    # Chat commands. The relay in TextChatActor_TA.ServerSendMessageToPlayers stays intact; its two leading guard
+    # statements (client check, sanity check) are replaced by a call to HandleSignedMessageFinished(Staged.MessageObject,
+    # Staged.ForbiddenPlayers). That function only runs on clients (it finishes signing an outgoing message), so its body
+    # is free on the server and becomes the command parser:
+    #   if (Left(text, 5) ~= "!map ") ConsoleCommand("servertravel " $ Mid(text, 5, 255) $ "<url options>");
+    # Jump targets are memory offsets, where every 4-byte reference takes 8 bytes: the replacement keeps the old
+    # serialized size and the old reference count, so no other offset in the function moves.
+    R = lambda v: struct.pack('<i', v)
+
     off, size = pkg.export('TextChatActor_TA.ServerSendMessageToPlayers')
     b = bytearray(pkg.img[off:off + size])
-    R = lambda v: struct.pack('<i', v)
-    chain = bytes.fromhex('1900 1900 2bf5140100 0900 c40d0100 00 01c40d0100 0900 85edffff 00 01 85edffff')
+    tail = bytes.fromhex('040b 0f5e1900 01b3140100 0900 9ef9')    # end of the second guard, start of the relay
+    head, old_mem = 0x30, 156
+    assert b.count(tail) == 1 and b[head:head + 3] == b'\x07\x16\x00' and b[head + 18:head + 21] == b'\x07\x9c\x00', \
+        'ServerSendMessageToPlayers not as expected (already patched or game updated)'
+    old_len = b.find(tail) + 2 - head
+    old_refs = (old_mem - old_len) // 4
+    # Staged is the local 0x114f5; MessageObject = 0x10dc4, ForbiddenPlayers = 0x10dc6
+    ctx = lambda member: b'\x19\x00\x2b' + R(0x114f5) + b'\x09\x00' + R(member) + b'\x00\x01' + R(member)
+    call = b'\x1c' + R(0x114ca) + ctx(0x10dc4) + ctx(0x10dc6) + b'\x16'
+    filler = b'\x0f\x2b' + R(0x114f4) + b'\x25'   # TimeStamp = 0: harmless, it is assigned again later; only adds a reference
+    extra = old_refs - 7
+    assert 0 <= extra and len(call) + extra * len(filler) <= old_len
+    new = call + filler * extra
+    b[head:head + old_len] = new + b'\x0b' * (old_len - len(new))
+    yield off, bytes(b)
+
+    off, size = pkg.export('TextChatActor_TA.HandleSignedMessageFinished')
+    b = bytearray(pkg.img[off:off + size])
     code_len = i32(b, 0x2c)
-    assert chain in b and b[0x30 + code_len - 3:0x30 + code_len] == b'\x04\x0b\x4c', 'ServerSendMessageToPlayers not as expected (already patched or game updated)'
-    # each piece is (bytes, number of 4-byte references): a reference is 8 bytes in memory, and jump targets are memory offsets
-    text = (b'\x5e\x35' + R(-4459) + R(-4300) + b'\x00\x00' + chain, 7)   # Staged.MessageObject.Payload.MessageText
-    cut = lambda n: b'\x38\x3a\x24' + bytes([n])                           # int(byte n)
-    left = lambda n, s: (b'\xbf\x80' + text[0] + cut(n) + b'\x16' + lit(s) + b'\x16', 7)
-    mid = lambda n: (b'\xd0' + text[0] + cut(n) + cut(255) + b'\x16', 7)
+    assert b[0x30 + code_len - 3:0x30 + code_len] == b'\x04\x0b\x4c' and b[0x30:0x32] == b'\x07\x69', \
+        'HandleSignedMessageFinished not as expected (already patched or game updated)'
+    # each piece is (bytes, number of 4-byte references)
+    text = (b'\x5e\x35' + R(-4459) + R(-4300) + b'\x00\x00' + b'\x19\x00\x2b' + R(0x114c9) + b'\x09\x00' + R(-4731)
+            + b'\x00\x01' + R(-4731), 5)   # MessageObject.Payload.MessageText
+    cut = lambda n: b'\x38\x3a\x24' + bytes([n])                      # int(byte n)
+    left = lambda n, s: (b'\xbf\x80' + text[0] + cut(n) + b'\x16' + lit(s) + b'\x16', 5)
+    mid = lambda n: (b'\xd0' + text[0] + cut(n) + cut(255) + b'\x16', 5)
     name = pkg.names.index('ConsoleCommand')
     # EatString(ReturnValue), virtual call, bWriteToLog = false
     cmd = lambda arg, refs: (b'\x0e' + R(-4403) + b'\x1b' + R(name) + R(0) + arg + b'\x28\x16', refs + 1)
     opts = '?' + url.split('?', 1)[1]
-    parts = [(left(5, '!map '), cmd(b'\xf8\xf8' + lit('servertravel ') + mid(5)[0] + b'\x16' + lit(opts) + b'\x16', 7)),
-             (left(6, '!kick '), cmd(b'\xf8' + lit('kick ') + mid(6)[0] + b'\x16', 7))]
+    parts = [(left(5, '!map '), cmd(b'\xf8\xf8' + lit('servertravel ') + mid(5)[0] + b'\x16' + lit(opts) + b'\x16', 5))]
     out, at = b'', 0
     for cond, stmt in parts:
         at += 3 + sum(len(x) + 4 * r for x, r in (cond, stmt))
@@ -290,9 +311,9 @@ def chat_hook(pkg, url):
     out += b'\x04\x0b'
     assert len(out) < code_len, f'chat hook too long by {len(out) - code_len + 1} bytes'
     pad = code_len - 1 - len(out)
-    struct.pack_into('<i', b, 0x28, at + 2 + pad + 1)   # memory size; no 4-byte references in the padding
+    struct.pack_into('<i', b, 0x28, at + 2 + pad + 1)   # memory size; the padding has no references
     b[0x30:0x30 + code_len] = out + b'\x0b' * pad + b'\x4c'
-    return off, bytes(b)
+    yield off, bytes(b)
 
 
 def patch(src, dst, edits, url):
