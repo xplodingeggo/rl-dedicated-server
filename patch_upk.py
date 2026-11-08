@@ -257,6 +257,43 @@ def tagame_edits(pkg, url):
     b = b.replace(old, b'\x38\x3a\x24\x01\x16\x16')
     yield off, bytes(b)
 
+    yield chat_hook(pkg, url)
+
+
+def chat_hook(pkg, url):
+    # Chat commands. TextChatActor_TA.ServerSendMessageToPlayers runs on the server for every chat message; its body
+    # becomes
+    #   if (Left(text, 5) ~= "!map ")  ConsoleCommand("servertravel " $ Mid(text, 5, 255) $ "<url options>");
+    #   if (Left(text, 6) ~= "!kick ") ConsoleCommand("kick " $ Mid(text, 6, 255));
+    # padded with Nothing tokens to the old length. Chat is therefore no longer relayed between players.
+    off, size = pkg.export('TextChatActor_TA.ServerSendMessageToPlayers')
+    b = bytearray(pkg.img[off:off + size])
+    R = lambda v: struct.pack('<i', v)
+    chain = bytes.fromhex('1900 1900 2bf5140100 0900 c40d0100 00 01c40d0100 0900 85edffff 00 01 85edffff')
+    code_len = i32(b, 0x2c)
+    assert chain in b and b[0x30 + code_len - 3:0x30 + code_len] == b'\x04\x0b\x4c', 'ServerSendMessageToPlayers not as expected (already patched or game updated)'
+    # each piece is (bytes, number of 4-byte references): a reference is 8 bytes in memory, and jump targets are memory offsets
+    text = (b'\x5e\x35' + R(-4459) + R(-4300) + b'\x00\x00' + chain, 7)   # Staged.MessageObject.Payload.MessageText
+    cut = lambda n: b'\x38\x3a\x24' + bytes([n])                           # int(byte n)
+    left = lambda n, s: (b'\xbf\x80' + text[0] + cut(n) + b'\x16' + lit(s) + b'\x16', 7)
+    mid = lambda n: (b'\xd0' + text[0] + cut(n) + cut(255) + b'\x16', 7)
+    name = pkg.names.index('ConsoleCommand')
+    # EatString(ReturnValue), virtual call, bWriteToLog = false
+    cmd = lambda arg, refs: (b'\x0e' + R(-4403) + b'\x1b' + R(name) + R(0) + arg + b'\x28\x16', refs + 1)
+    opts = '?' + url.split('?', 1)[1]
+    parts = [(left(5, '!map '), cmd(b'\xf8\xf8' + lit('servertravel ') + mid(5)[0] + b'\x16' + lit(opts) + b'\x16', 7)),
+             (left(6, '!kick '), cmd(b'\xf8' + lit('kick ') + mid(6)[0] + b'\x16', 7))]
+    out, at = b'', 0
+    for cond, stmt in parts:
+        at += 3 + sum(len(x) + 4 * r for x, r in (cond, stmt))
+        out += b'\x07' + struct.pack('<H', at) + cond[0] + stmt[0]
+    out += b'\x04\x0b'
+    assert len(out) < code_len, f'chat hook too long by {len(out) - code_len + 1} bytes'
+    pad = code_len - 1 - len(out)
+    struct.pack_into('<i', b, 0x28, at + 2 + pad + 1)   # memory size; no 4-byte references in the padding
+    b[0x30:0x30 + code_len] = out + b'\x0b' * pad + b'\x4c'
+    return off, bytes(b)
+
 
 def patch(src, dst, edits, url):
     pkg = Package(open(src, 'rb').read())
