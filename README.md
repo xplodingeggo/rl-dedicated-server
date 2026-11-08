@@ -84,10 +84,9 @@ Type these in the in-game chat while connected to the server:
 | Command | Effect |
 |---------|--------|
 | `!map Park_P` | Runs `servertravel Park_P?game=...?Lan?listen`. Everyone is moved to the new map. |
-| `!kick Name` | Runs the console command `kick Name`. |
+| `!kick Name` | Kicks the player whose in-game name is `Name` (not case sensitive). |
 
-**There is no password: every connected player can use them.** Only run the server on a network you trust. Players are not asked to confirm anything, and chat is not relayed, so players don't see each other's messages.
-Commands are untested in a real match: if `!map` or `!kick` does nothing, check the server log for the console command's reply.
+**There is no password: every connected player can use them.** Only run the server on a network you trust. Players are not asked to confirm anything. The command message is relayed to the other players like any other chat.
 
 ## Choosing the map
 
@@ -134,7 +133,9 @@ The patched file is written as a new copy, `RocketLeague_Server.exe`.
 | `ProjectX`: `OnlineGameDedicatedServerRegistration_X.SendUpdateRequest` | Jumps straight to the return | Skips registration with PsyNet, which answers `AccessDenied` for unofficial servers. |
 | `ProjectX`: `GameSettingPlaylist_X.IsLanMatch` | `'LANMatch'` becomes `'PrivateMatch'` | The server downloads the `Server` playlist list, which has no `LANMatch` playlist. Without one, the match allows 0 players and every join fails with "server full". |
 | `TAGame`: `GameEvent_TA.Init` | `NetMode == 2` becomes `NetMode == 1` | The LAN listen server, which accepts LAN logins, only starts for a listen server (2). A dedicated server is 1. |
-| `TAGame`: `TextChatActor_TA.ServerSendMessageToPlayers` | Body replaced by the chat commands below | Lets players change the map and kick players without a console. Chat is no longer relayed between players. |
+| `TAGame`: `TextChatActor_TA.ServerSendMessageToPlayers` | The two guard statements at the top become a call to `HandleSignedMessageFinished` | Hands each chat message to the command parser. The chat relay itself is untouched. |
+| `TAGame`: `TextChatActor_TA.HandleSignedMessageFinished` | Body replaced by the command parser | A client-only function, so its body is free on the server. Runs `!map` and `!kick`. |
+| `TAGame`: `TextChatActor_TA.SendSignedMessage` | Body replaced by a loop over `WorldInfo.AllControllers` | Client-only as well. Calls `KickPlayerForReason` on the player whose name matches. |
 
 ### LAN browser (`lan_responder.py`)
 

@@ -303,7 +303,9 @@ def chat_hook(pkg, url):
     # EatString(ReturnValue), virtual call, bWriteToLog = false
     cmd = lambda arg, refs: (b'\x0e' + R(-4403) + b'\x1b' + R(name) + R(0) + arg + b'\x28\x16', refs + 1)
     opts = '?' + url.split('?', 1)[1]
-    parts = [(left(5, '!map '), cmd(b'\xf8\xf8' + lit('servertravel ') + mid(5)[0] + b'\x16' + lit(opts) + b'\x16', 5))]
+    # SendSignedMessage(Message, ChatChannel, ForbiddenPlayers) is the kick loop below
+    parts = [(left(5, '!map '), cmd(b'\xf8\xf8' + lit('servertravel ') + mid(5)[0] + b'\x16' + lit(opts) + b'\x16', 5)),
+             (left(6, '!kick '), (b'\x1c' + R(0x114bf) + mid(6)[0] + b'\x24\x00\x2b' + R(0x114c8) + b'\x16', 7))]
     out, at = b'', 0
     for cond, stmt in parts:
         at += 3 + sum(len(x) + 4 * r for x, r in (cond, stmt))
@@ -312,6 +314,34 @@ def chat_hook(pkg, url):
     assert len(out) < code_len, f'chat hook too long by {len(out) - code_len + 1} bytes'
     pad = code_len - 1 - len(out)
     struct.pack_into('<i', b, 0x28, at + 2 + pad + 1)   # memory size; the padding has no references
+    b[0x30:0x30 + code_len] = out + b'\x0b' * pad + b'\x4c'
+    yield off, bytes(b)
+
+    # SendSignedMessage is client-only as well. Its body becomes the kick loop (its closure local `_0x1` is the loop variable):
+    #   foreach WorldInfo.AllControllers(class'PlayerController_X', PC)
+    #       if (PC.PlayerReplicationInfo.PlayerName ~= Message) PC.KickPlayerForReason("TAGame.Lan.HostExited");
+    off, size = pkg.export('TextChatActor_TA.SendSignedMessage')
+    b = bytearray(pkg.img[off:off + size])
+    code_len = i32(b, 0x2c)
+    assert b[0x30 + code_len - 3:0x30 + code_len] == b'\x04\x0b\x4c' and b[0x30:0x32] == b'\x0f\x2b', \
+        'SendSignedMessage not as expected (already patched or game updated)'
+    M = lambda t: len(t[0]) + 4 * t[1]   # memory size
+    pc = R(0x114bb)
+    head = (b'\x2f\x5e\x19\x00\x12\x00\x20' + R(-977) + b'\x0a\x00' + R(-3813) + b'\x00\x1c' + R(-2447) + b'\x16', 3)  # WorldInfo.GetWorldInfo()
+    allc = (b'\x1c' + R(-2433) + b'\x20' + R(-1172) + b'\x2b' + pc + b'\x16', 3)   # .AllControllers(class'PlayerController_X', PC)
+    pri_name = (b'\x5e\x19\x00\x19\x00\x2b' + pc + b'\x09\x00' + R(-3726) + b'\x00\x01' + R(-3726)
+                + b'\x09\x00' + R(-4435) + b'\x00\x01' + R(-4435))
+    cond = (b'\xbf' + pri_name + b'\x2b' + R(0x114be) + b'\x16', 6)
+    kcall = b'\x1c' + R(-3221) + lit('TAGame.Lan.HostExited') + b'\x48\x16'
+    kick = (b'\x5e\x19\x00\x2b' + pc + struct.pack('<H', 4 + len(kcall)) + R(0) + b'\x00' + kcall, 3)
+    start = M(head) + 11 + M(allc) + 2       # memory offset of the loop body
+    end = start + 3 + M(cond) + M(kick)      # IteratorNext; IteratorPop follows it
+    skip = M(allc) + 2 + (end - start) + 2
+    out = (head[0] + struct.pack('<H', skip) + R(0) + b'\x00' + allc[0] + struct.pack('<H', end + 1)
+           + b'\x07' + struct.pack('<H', end) + cond[0] + kick[0] + b'\x31\x30\x04\x0b')
+    assert len(out) < code_len, f'kick loop too long by {len(out) - code_len + 1} bytes'
+    pad = code_len - 1 - len(out)
+    struct.pack_into('<i', b, 0x28, end + 4 + pad + 1)
     b[0x30:0x30 + code_len] = out + b'\x0b' * pad + b'\x4c'
     yield off, bytes(b)
 
