@@ -1,0 +1,8 @@
+game/
+out/
+src/
+workspace/
+release/
+*.upk
+*.exe
+__pycache__/
