@@ -5,15 +5,15 @@ A headless Rocket League server. It runs with no window, no rendering and no sou
 Rocket League's normal LAN hosting runs inside the full game client. But the retail `RocketLeague.exe` also contains Psyonix's own server mode (`server <map>`, which runs `Engine.ServerCommandlet`), and it is disabled. This project patches a **private copy** of the game so that this mode boots as a LAN match. Players find it in the game's normal LAN match browser and join on UDP port 7777.
 
 > **Status: experimental.**
-> - Tested: the server boots headless and shows up in the LAN match browser, and a player on another PC joined it.
-> - Not tested yet: full matches, or several players at once.
-> - Tested on the Steam build `261031.63733.533021` (Windows), and on the Epic Games Store build of the same version under Wine on Linux (the server boots and listens on UDP 7777; joining from a client was not tested there).
+> - Tested: the server boots headless and shows up in the LAN match browser, and a player joined it. Join password, admin login, `!map` (including workshop maps), `!kick` and chat all worked.
+> - Not tested yet: full matches, a wrong join password being rejected, or several players at once.
+> - Tested on game build `261031.63733.533021`: the Steam exe on Windows, and both the Steam exe and the Epic Games Store exe under Wine on Linux.
 
 No game files are in this repo. The scripts patch the copy of the game you already own. Your real install is only read and never modified.
 
 ## Requirements
 
-- Windows, with Rocket League installed. Only the Steam build has been tested. Linux through Wine is described in the Linux section and has not been tested.
+- Windows, or Linux with Wine (see the Linux section), with Rocket League installed. The Steam and Epic Games Store builds have both been tested.
 - Python 3.10 or newer, plus the libraries in `requirements.txt` (`pefile` and `cryptography`).
 - About 11 GB of free disk space for the server copy. Textures and audio streams are not copied.
 
@@ -60,11 +60,11 @@ To stop everything (the server, the LAN responder and the log windows):
 
 ## Linux
 
-**Lightly tested.** The server boots under Wine 11 with the Epic Games Store build and the Steam build (it reaches `Stadium_P` and listens on UDP 7777); joining from a game client has not been tested. The patchers are plain Python and run on Linux. The server itself is a Windows exe, so it runs under Wine. `setup.sh` and `run.sh` do what `setup.ps1` and `run.ps1` do:
+**Tested** under Wine 11 with both the Epic Games Store build and the Steam build: the server reaches `Stadium_P`, listens on UDP 7777, and a game client on the same PC joined it, used the join password and admin login, and changed maps with `!map`. The patchers are plain Python and run on Linux. The server itself is a Windows exe, so it runs under Wine. `setup.sh` and `run.sh` do what `setup.ps1` and `run.ps1` do:
 
 ```bash
 python3 -m pip install -r requirements.txt
-./setup.sh ~/.local/share/Steam/steamapps/common/rocketleague   # the Windows game files, as installed by Steam
+./setup.sh ~/.local/share/Steam/steamapps/common/rocketleague   # the Windows game files, as installed by Steam or Epic (Heroic)
 ./run.sh --name 'Friday league' --join-password letmein --admin-password s3cret
 ./run.sh --stop
 ```
@@ -74,6 +74,8 @@ python3 -m pip install -r requirements.txt
 - Wine uses `~/.wine` unless you set `WINEPREFIX`. Set it to Steam's Proton prefix to reuse that one: `WINEPREFIX=~/.local/share/Steam/steamapps/compatdata/252950/pfx ./run.sh`.
 - The server log is in the prefix: `$WINEPREFIX/drive_c/users/<user>/Documents/My Games/Rocket League/TAGame/Logs/`. By default `run.sh` follows it with `tail -F` and stays in the foreground (Ctrl+C stops only the tail; the server keeps running). `--nolog` skips that.
 - Open UDP ports 7777 and 14001 in your firewall for the PC running the server.
+- The log fills with `NotLoggedInToPsynet` and EOS overlay errors. They are harmless: the server does not log in to PsyNet or Epic.
+- The first start takes about 40 seconds before it listens (the hardware survey runs for about 30 of them under Wine).
 - File names are matched ignoring case (`fs.py`, and `ci` in `setup.sh`), so a Steam install with different capitalisation still works. Wine itself looks files up ignoring case; a folder holding two files that differ only by case is not handled.
 
 ## Joining
@@ -155,13 +157,25 @@ What the launch flags do:
 
 ### Patches to the exe (`patch_exe.py`)
 
-The patched file is written as a new copy, `RocketLeague_Server.exe`.
+The patched file is written as a new copy, `RocketLeague_Server.exe`. Every patch is checked against the expected original bytes first. `patch_exe.py` knows two patch sets and uses the first that verifies.
+
+**Steam exe (fixed addresses):**
 
 | RVA | Change | Why |
 |-----|--------|-----|
 | `0xde2ddb`, `0xde2f68` | `jnz` to `jmp` | Server mode tries to load `OnlineSubsystemPC`, which was removed from retail builds. The patch makes it use the normal online subsystem. |
 | `0xddfd7e` | `jz` to `jmp` | Skips the "Commandlets are not supported" abort. |
 | `0xddd785` | jump over 0x17 bytes | The main loop calls through a global pointer that is null under `-nullrhi`, which crashes. The patch skips that call. |
+
+**Epic Games Store exe (found by byte pattern, each pattern must match exactly once):**
+
+| Patch | Why |
+|-------|-----|
+| Two `cmove`/`cmovne` instructions that choose the online subsystem name become a no-op and a plain `mov` | This exe picks `PC` or `EOS` without a branch. The patch always picks `EOS` instead of the stripped `PC`. |
+| `je` to `jmp` after the check that calls `EOS_Platform_CheckForLauncherAndRestartIfNeeded` | Outside the Epic launcher the check fails with `EOS_UnexpectedError` and the server aborts with "failed to init LauncherCheck module". |
+| Jump over the main loop's call through a null global (same patch as for Steam) | Same crash under `-nullrhi`. |
+
+The "Commandlets are not supported" abort is not in the Epic exe (the Steam workshop commandlet it guarded was removed), so it needs no patch there.
 
 ### Patches to UnrealScript (`patch_upk.py`)
 
