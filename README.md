@@ -7,7 +7,7 @@ Rocket League's normal LAN hosting runs inside the full game client. But the ret
 > **Status: experimental.**
 > - Tested: the server boots headless and shows up in the LAN match browser, and a player on another PC joined it.
 > - Not tested yet: full matches, or several players at once.
-> - Tested only on the Steam build `261031.63733.533021`.
+> - Tested on the Steam build `261031.63733.533021` (Windows), and on the Epic Games Store build of the same version under Wine on Linux (the server boots and listens on UDP 7777; joining from a client was not tested there).
 
 No game files are in this repo. The scripts patch the copy of the game you already own. Your real install is only read and never modified.
 
@@ -60,7 +60,7 @@ To stop everything (the server, the LAN responder and the log windows):
 
 ## Linux
 
-**Untested.** The patchers are plain Python and run on Linux. The server itself is a Windows exe, so it runs under Wine. `setup.sh` and `run.sh` do what `setup.ps1` and `run.ps1` do:
+**Lightly tested.** The server boots under Wine 11 with the Epic Games Store build and the Steam build (it reaches `Stadium_P` and listens on UDP 7777); joining from a game client has not been tested. The patchers are plain Python and run on Linux. The server itself is a Windows exe, so it runs under Wine. `setup.sh` and `run.sh` do what `setup.ps1` and `run.ps1` do:
 
 ```bash
 python3 -m pip install -r requirements.txt

@@ -31,7 +31,7 @@ command -v wine >/dev/null || { echo 'wine not found: install Wine (or set WINE=
 cd "$g"
 # $extra is split on purpose: it holds several command line options
 # shellcheck disable=SC2086
-nohup "${WINE:-wine}" RocketLeague_Server.exe "server $map?game=TAGame.GameInfo_Soccar_TA?Lan?listen" \
+nohup "${WINE:-wine}" RocketLeague_Server.exe server "$map?game=TAGame.GameInfo_Soccar_TA?Lan?listen" \
     -FakeServer -noeac -nullrhi -nosound -unattended -log -nostartupmovies -forcelogflush $extra >/dev/null 2>&1 &
 resp=(-X utf8 -I "$here/lan_responder.py" "$map" "$name")
 [ -n "$join" ] && resp+=(-p)   # only tells the LAN browser the server has a password; the server checks it
