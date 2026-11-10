@@ -8,7 +8,7 @@ It patches a **private copy** of the game you already own. Your install is only 
 
 ## Install
 
-Needs Rocket League installed, 11 GB free, and Python 3.10+.
+Needs Rocket League installed and Python 3.10+.
 
 **Linux (Wine)**, paste in a terminal:
 ```bash
