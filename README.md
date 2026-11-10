@@ -17,6 +17,36 @@ No game files are in this repo. The scripts patch the copy of the game you alrea
 - Python 3.10 or newer, plus the libraries in `requirements.txt` (`pefile` and `cryptography`).
 - About 11 GB of free disk space for the server copy. Textures and audio streams are not copied.
 
+## Quick install
+
+The installer asks a few questions and does the rest. Paste one line:
+
+Linux (Wine), in a terminal:
+```bash
+curl -fsSL https://raw.githubusercontent.com/xplodingeggo/rl-dedicated-server/main/install.sh | bash
+```
+
+Windows, in PowerShell:
+```powershell
+irm https://raw.githubusercontent.com/xplodingeggo/rl-dedicated-server/main/install.ps1 | iex
+```
+
+It asks, with autodetected choices listed first:
+1. Where to keep the repo (default `~/rl-dedicated-server`, or `%USERPROFILE%\rl-dedicated-server`).
+2. Your Rocket League folder. Steam libraries and Epic (through Heroic on Linux) are found automatically. Pick "other" to type a path. The game folder is only read.
+3. Where to put the server copy (about 11 GB).
+4. Linux only: which Wine to use. The list shows system Wine, Proton and GE-Proton from Steam, Heroic and Lutris builds, and "other" for a custom path.
+5. Linux only: which Wine prefix to use. The default is a new prefix just for the server (`~/.local/share/rl-dedicated-server/prefix`), so it never touches your game's prefix. Existing prefixes from `~/.wine`, Steam (Proton) and Heroic are listed too. Pick "other" for any other path.
+6. Whether to start the server, with optional server name, join password and admin password.
+
+The answers are saved in `server.conf` in the repo. `run.sh` and `run.ps1` read it, so later runs use the same Wine and prefix. Command-line options and environment variables still override it.
+
+Options for the Linux installer, to skip questions: `--repo DIR --game DIR --out DIR --wine PATH --prefix DIR --yes` (`--yes` takes the first choice for anything not given).
+
+Status of the installer:
+- `install.sh` (Linux): tested end to end with the Epic Games Store install under system Wine, a new prefix and a non-interactive run. Pasting the `curl` line itself is tested once the repo is pushed.
+- `install.ps1` (Windows): not run yet. Use the manual steps below if it fails and report what happened.
+
 ## Setup
 
 ```powershell
@@ -130,14 +160,18 @@ Every chat message is also written to the server log as `Chat <player>: <text>`,
 
 ## Choosing the map
 
-The map is written into `ProjectX.upk` during setup, so choosing a different map means running setup again:
+The starting map is written into `ProjectX.upk` during setup, so it is chosen at setup time. The installer asks for it, and it is saved as `MAP=` in `server.conf`. The default is `Stadium_P`.
 
+To change it later, run setup again with the new map:
+
+```bash
+./setup.sh ~/.local/share/Steam/steamapps/common/rocketleague ./game Park_P   # Linux
+```
 ```powershell
-.\setup.ps1 -Game '...' -Map Park_P
-.\run.ps1 -Map Park_P
+.\setup.ps1 -Game '...' -Map Park_P                                          # Windows
 ```
 
-Pass the same `-Map` to both scripts. Only `Stadium_P` has been tested.
+Then set `MAP=Park_P` in `server.conf` (or pass `-Map` / `--map` to run.ps1 / run.sh). `run.sh` and `run.ps1` warn when the copy was set up for a different map. Only `Stadium_P` has been tested as the starting map.
 
 ## How it works
 

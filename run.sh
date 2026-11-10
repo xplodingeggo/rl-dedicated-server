@@ -6,7 +6,11 @@
 # Stop it with ./run.sh --stop
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
-dir="$here/game"; map=Stadium_P; name='Dedicated server'; extra=''; join=''; admin=''; logs=1
+# conf_get KEY: value of KEY=... in server.conf (written by install.sh). Read as text, never sourced.
+conf_get() { [ -f "$here/server.conf" ] && grep -m1 "^$1=" "$here/server.conf" | cut -d= -f2- || true; }
+# Precedence: command line flags, then environment (WINE, WINEPREFIX, WINEDLLPATH, PYTHON), then server.conf, then defaults.
+dir="$(conf_get OUT_DIR)"; dir="${dir:-$here/game}"
+map="$(conf_get MAP)"; map="${map:-Stadium_P}"; name='Dedicated server'; extra=''; join=''; admin=''; logs=1
 while [ $# -gt 0 ]; do
     case "$1" in
         --dir) dir="$2"; shift 2 ;;
@@ -27,18 +31,28 @@ done
 [ -n "$admin" ] && extra="$extra -AdminPassword=$admin"
 g="$dir/Binaries/Win64"
 [ -f "$g/RocketLeague_Server.exe" ] || { echo "No server build in $dir - run setup.sh first" >&2; exit 1; }
-command -v wine >/dev/null || { echo 'wine not found: install Wine (or set WINE=/path/to/wine)' >&2; exit 1; }
+built="$(cat "$dir/.rl-server-copy" 2>/dev/null || true)"
+if [ -n "$built" ] && [ "$built" != "$map" ]; then
+    echo "warning: this copy was set up for $built, but the server is asked to start on $map. Run setup.sh with $map to bake it in (or use --map $built)." >&2
+fi
+wine_bin="${WINE:-$(conf_get WINE)}"; wine_bin="${wine_bin:-wine}"
+command -v "$wine_bin" >/dev/null || { echo "wine not found: $wine_bin (install Wine, or set WINE=/path/to/wine)" >&2; exit 1; }
+for v in WINEPREFIX WINEDLLPATH; do
+    val="${!v:-$(conf_get $v)}"
+    [ -n "$val" ] && export "$v=$val"
+done
+py="${PYTHON:-$(conf_get PYTHON)}"; py="${py:-python3}"
 cd "$g"
 # $extra is split on purpose: it holds several command line options
 # shellcheck disable=SC2086
-nohup "${WINE:-wine}" RocketLeague_Server.exe server "$map?game=TAGame.GameInfo_Soccar_TA?Lan?listen" \
+nohup "$wine_bin" RocketLeague_Server.exe server "$map?game=TAGame.GameInfo_Soccar_TA?Lan?listen" \
     -FakeServer -noeac -nullrhi -nosound -unattended -log -nostartupmovies -forcelogflush $extra >/dev/null 2>&1 &
 resp=(-X utf8 -I "$here/lan_responder.py" "$map" "$name")
 [ -n "$join" ] && resp+=(-p)   # only tells the LAN browser the server has a password; the server checks it
-nohup python3 "${resp[@]}" >/dev/null 2>&1 &
+nohup "$py" "${resp[@]}" >/dev/null 2>&1 &
 echo "started: server (wine) and lan_responder"
 if [ "$logs" = 1 ]; then
-    prefix="${WINEPREFIX:-$HOME/.wine}"
+    prefix="${WINEPREFIX:-$HOME/.wine}"  # WINEPREFIX is exported above when server.conf sets it
     sleep 5
     # Launch.log, or Launch_2.log when a game client already holds Launch.log: the server's is the one naming -FakeServer
     f="$(grep -l FakeServer "$prefix"/drive_c/users/*/Documents/My\ Games/Rocket\ League/TAGame/Logs/Launch*.log 2>/dev/null | xargs -r ls -t | head -1)"

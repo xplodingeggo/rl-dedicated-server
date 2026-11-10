@@ -7,3 +7,5 @@ release/
 *.exe
 __pycache__/
 mapurl.json
+server.conf
+.venv/

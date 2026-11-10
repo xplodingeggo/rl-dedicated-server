@@ -5,7 +5,20 @@
 # (match admin menu, !map, !kick). Without -AdminPassword nobody is an admin. Both end up on the command line, so any local
 # user can read them in the process list; no spaces or quotes.
 # A window that follows the server's log file opens unless you pass -NoLog; selecting text there only pauses that window, not the server.
-param([string]$Dir = "$PSScriptRoot\game", [string]$Map = 'Stadium_P', [string]$Name = 'Dedicated server', [string]$Extra = '', [string]$JoinPassword = '', [string]$AdminPassword = '', [switch]$NoLog)
+param([string]$Dir, [string]$Map, [string]$Name = 'Dedicated server', [string]$Extra = '', [string]$JoinPassword = '', [string]$AdminPassword = '', [switch]$NoLog)
+# server.conf (written by install.sh) can hold the server folder; -Dir still wins
+function Get-Conf($key) {
+    $f = "$PSScriptRoot\server.conf"
+    if (-not (Test-Path $f)) { return $null }
+    $line = Get-Content $f | Where-Object { $_ -like "$key=*" } | Select-Object -First 1
+    if ($line) { return $line.Substring($key.Length + 1) }
+}
+if (-not $Dir) { $Dir = Get-Conf 'OUT_DIR' }
+if (-not $Map) { $Map = Get-Conf 'MAP' }
+if (-not $Map) { $Map = 'Stadium_P' }
+if (-not $Dir) { $Dir = "$PSScriptRoot\game" }
+$built = if (Test-Path "$Dir\.rl-server-copy") { (Get-Content "$Dir\.rl-server-copy" -Raw).Trim() } else { '' }
+if ($built -and $built -ne $Map) { Write-Warning "this copy was set up for $built, but the server is asked to start on $Map. Run setup.ps1 with -Map $Map to bake it in." }
 foreach ($p in $JoinPassword, $AdminPassword) { if ($p -match '[\s"]') { throw 'Passwords cannot contain spaces or quotes' } }
 if ($JoinPassword) { $Extra += " -JoinPassword=$JoinPassword" }
 if ($AdminPassword) { $Extra += " -AdminPassword=$AdminPassword" }
