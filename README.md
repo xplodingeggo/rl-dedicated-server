@@ -41,21 +41,28 @@ Open UDP 7777 and 14001 in the firewall of the server PC.
 
 ## Launch arguments
 
-`run.sh` and `run.ps1` start the server with these arguments:
+`run.sh` and `run.ps1` start the server with these defaults. Most people never need to change them:
 
-| Argument | What it does |
-|----------|--------------|
-| `server <map>?game=TAGame.GameInfo_Soccar_TA?Lan?listen` | Starts the server on `<map>` in standard soccar, as a LAN listen server. |
+| Default flag | What it does |
+|--------------|--------------|
 | `-FakeServer` | Psyonix's own development switch. Skips the matchmaking reservation check. |
 | `-noeac` | Skips Easy Anti-Cheat. |
 | `-nullrhi` | Runs with no renderer. |
 | `-nosound` | Runs with no audio. |
 | `-unattended` | No dialogs or prompts, so the server never waits for input. |
-| `-log` | Writes the log to the console and to `Launch.log`. |
 | `-nostartupmovies` | Skips the intro movies. |
+
+To replace the defaults, pass your own flags with `--launch` (`bash`) or `-Launch` (PowerShell). For example, `./run.sh --launch '-noeac -nosound'` keeps only those two. `--launch ''` drops all the defaults.
+
+These are always added and can't be turned off, because the log window and the password checks depend on them:
+
+| Always added | What it does |
+|--------------|--------------|
+| `server <map>?game=TAGame.GameInfo_Soccar_TA?Lan?listen` | Starts the server on `<map>` in standard soccar, as a LAN listen server. |
+| `-log` | Writes the log to `Launch.log`. |
 | `-forcelogflush` | Flushes the log after every line, so log windows update at once. |
-| `-JoinPassword=<pw>` | Players must enter this password to join. Set with `--join-password` / `-JoinPassword`. |
-| `-AdminPassword=<pw>` | Enables `!admin <pw>` in chat. Set with `--admin-password` / `-AdminPassword`. |
+| `-JoinPassword=<pw>` | Added with `--join-password` / `-JoinPassword`. Players must enter this password to join. |
+| `-AdminPassword=<pw>` | Added with `--admin-password` / `-AdminPassword`. Enables `!admin <pw>` in chat. |
 
 ## Join
 

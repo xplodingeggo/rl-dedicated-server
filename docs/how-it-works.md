@@ -5,7 +5,7 @@ For people changing the patchers. The quick guide is in the main README.
 The server is started like this:
 
 ```
-RocketLeague_Server.exe server Stadium_P?game=TAGame.GameInfo_Soccar_TA?Lan?listen -FakeServer -noeac -nullrhi -nosound -unattended
+RocketLeague_Server.exe server Stadium_P?game=TAGame.GameInfo_Soccar_TA?Lan?listen -FakeServer -noeac -nullrhi -nosound -unattended -nostartupmovies -log -forcelogflush
 ```
 
 What the launch flags do:
