@@ -2,7 +2,7 @@
 # Paste-a-link installer for the Linux (Wine) setup. It asks a few questions, then builds the server copy.
 #   curl -fsSL https://raw.githubusercontent.com/xplodingeggo/rl-dedicated-server/main/install.sh | bash
 # Skip questions with flags (add --yes to take the first choice for anything not given):
-#   --repo DIR  --game DIR  --out DIR  --map NAME  --wine PATH  --prefix DIR  --yes
+#   --repo DIR  --game DIR  --out DIR  --map NAME  --wine PATH  --prefix DIR  --link  --yes
 # Your real game install is only read. The server copy and the Wine prefix are the only things written.
 set -euo pipefail
 
@@ -12,7 +12,7 @@ MIN_FREE_GB=12
 die() { echo "error: $*" >&2; exit 1; }
 say() { printf '%s\n' "$*" >&2; }
 
-REPO=""; GAME=""; OUT=""; MAP=""; WINE=""; PREFIX=""; ASSUME_YES=""
+REPO=""; GAME=""; OUT=""; MAP=""; WINE=""; PREFIX=""; ASSUME_YES=""; LINK=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --repo) REPO="$2"; shift 2 ;;
@@ -21,6 +21,7 @@ while [ $# -gt 0 ]; do
         --map) MAP="$2"; shift 2 ;;
         --wine) WINE="$2"; shift 2 ;;
         --prefix) PREFIX="$2"; shift 2 ;;
+        --link) LINK=1; shift ;;
         --yes) ASSUME_YES=1; shift ;;
         *) die "unknown option: $1" ;;
     esac
@@ -118,6 +119,14 @@ p="$OUT"; while [ ! -d "$p" ]; do p="$(dirname "$p")"; done
 free="$(df -BG --output=avail "$p" | tail -1 | tr -dc '0-9')"
 [ "${free:-0}" -ge "$MIN_FREE_GB" ] || say "warning: only ${free} GB free under $p; the copy needs about 11 GB"
 
+# ---- 4a. hardlinks (same file system only) -------------------------------------
+# Default is no: a hardlinked copy follows in-place edits of the game folder (a Steam update, a mod manager).
+same_fs=""; [ "$(stat -c %d "$GAME")" = "$(stat -c %d "$p")" ] && same_fs=1
+if [ -z "$LINK" ] && [ -n "$same_fs" ]; then
+    case "$(ask "hardlink the unchanged game files instead of copying them, saves about 10 GB (y/n)" "n")" in y|Y) LINK=1 ;; esac
+fi
+if [ -n "$LINK" ] && [ -z "$same_fs" ]; then say "warning: the server copy and the game are on different file systems; hardlinks are not possible, copying instead"; LINK=""; fi
+
 # ---- 4b. starting map (baked into the copy; see README, Choosing the map) -----
 [ -n "$MAP" ] || MAP="$(ask "map the server starts on" "Stadium_P")"
 
@@ -184,6 +193,7 @@ fi
     echo "GAME_DIR=$GAME"
     echo "OUT_DIR=$OUT"
     echo "MAP=$MAP"
+    echo "LINK=${LINK:-0}"
     echo "WINE=$WINE"
     echo "WINEPREFIX=$PREFIX"
     [ -n "$WINEDLLPATH" ] && echo "WINEDLLPATH=$WINEDLLPATH"
@@ -191,7 +201,7 @@ fi
 } > "$REPO/server.conf"
 say "saved choices to $REPO/server.conf"
 say "building the server copy (several minutes)"
-(cd "$REPO" && PYTHON="$PY" ./setup.sh "$GAME" "$OUT" "$MAP")
+(cd "$REPO" && PYTHON="$PY" ./setup.sh ${LINK:+--link} "$GAME" "$OUT" "$MAP")
 
 # ---- 8. start ----------------------------------------------------------------------
 ip="$(ip -4 route get 1 2>/dev/null | awk '{for (i = 1; i < NF; i++) if ($i == "src") { print $(i + 1); exit }}')"

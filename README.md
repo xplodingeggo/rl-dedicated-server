@@ -22,7 +22,20 @@ irm https://raw.githubusercontent.com/xplodingeggo/rl-dedicated-server/main/inst
 
 The installer asks where your game is, where to put the server copy, the starting map (default `Stadium_P`), and on Linux which Wine and prefix to use. Answers are saved to `server.conf`. Run it again after every game update.
 
-Skip the questions on Linux with `--game DIR --out DIR --map NAME --wine PATH --prefix DIR --yes`.
+Skip the questions on Linux with `--game DIR --out DIR --map NAME --wine PATH --prefix DIR --link --yes`.
+
+### Disk space
+
+Only `ProjectX.upk` and `TAGame.upk` are changed. The other ~10.5 GB of the server copy are plain copies of the game's files. With `--link` (`-Link` on Windows, or answer `y` when the installer asks) setup makes hardlinks to them instead, so the copy takes about 0.5 GB:
+
+```powershell
+.\setup.ps1 -Game 'D:\Games\rocketleague' -Out D:\rl-server -Link
+```
+
+- The server copy must be on the same drive as the game. If hardlinks fail, setup warns and copies instead.
+- The two patched packages are always real copies. Writing through a link would change your game install.
+- A hardlink is the same file, not a second copy. A game update or a mod manager that edits a package in place changes the server's copy too. Run setup again after a game update.
+- Deleting the game folder does not break the server: the data stays while the links exist.
 
 ## Run and stop
 

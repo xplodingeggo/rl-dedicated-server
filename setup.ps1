@@ -1,10 +1,13 @@
 # Build a private server copy of the game. Your real install is only read, never modified.
-#   .\setup.ps1 -Game 'C:\Program Files (x86)\Steam\steamapps\common\rocketleague' [-Out .\game] [-Map Stadium_P]
+#   .\setup.ps1 -Game 'C:\Program Files (x86)\Steam\steamapps\common\rocketleague' [-Out .\game] [-Map Stadium_P] [-Link]
+# -Link: hardlink the unchanged packages from the game folder instead of copying them (saves ~10.5 GB). Needs -Out on the same
+# drive as -Game; otherwise it falls back to copying. The two packages the patcher writes are always real copies.
 # Textures (.tfc) and audio streams (.wem/.ewem) are skipped: the server runs with -nullrhi -nosound (~11 GB instead of ~30).
 param(
     [Parameter(Mandatory)][string]$Game,
     [string]$Out = "$PSScriptRoot\game",
-    [string]$Map = 'Stadium_P'
+    [string]$Map = 'Stadium_P',
+    [switch]$Link
 )
 $ErrorActionPreference = 'Stop'
 $py = if ($env:PYTHON) { $env:PYTHON } else { 'python' }   # install.ps1 sets this to the repo's venv
@@ -24,11 +27,35 @@ Remove-Item "$Out\Binaries\Win64\RocketLeague.exe"
 Copy-Item "$Game\TAGame.upk" $Out
 Get-ChildItem "$Game\TAGame" -Force | ? { $_.Name -ne 'CookedPCConsole' } | % { Copy-Item $_.FullName "$Out\TAGame\$($_.Name)" -Recurse }
 # The game scans CookedPCConsole recursively, so mod-manager folders are left out to avoid duplicate packages.
-robocopy "$Game\TAGame\CookedPCConsole" "$Out\TAGame\CookedPCConsole" *.upk *.bin *.udk *.bnk *.ebnk *.py /XD mods Backups .hebnix-menu-map /NFL /NDL /NJH /NP /MT:16 | Out-Null
-if ($LASTEXITCODE -ge 8) { throw "robocopy failed ($LASTEXITCODE)" }
-$py -X utf8 -I "$PSScriptRoot\patch_upk.py" "$Game\TAGame\CookedPCConsole" "$Out\TAGame\CookedPCConsole" $Map
+$cookedIn = "$Game\TAGame\CookedPCConsole"; $cookedOut = "$Out\TAGame\CookedPCConsole"
+$linked = $false
+if ($Link) {
+    # patch_upk.py writes these two; writing through a hardlink would change the game install itself.
+    $patched = 'ProjectX.upk', 'TAGame.upk'
+    $skipDirs = 'mods', 'Backups', '.hebnix-menu-map'
+    try {
+        Get-ChildItem $cookedIn -Recurse -File -Force -Include *.upk, *.bin, *.udk, *.bnk, *.ebnk, *.py | ForEach-Object {
+            $rel = $_.FullName.Substring($cookedIn.Length + 1)
+            if ($rel -in $patched) { return }
+            if ($skipDirs | ? { $rel -like "$_\*" -or $rel -like "*\$_\*" }) { return }
+            $dest = Join-Path $cookedOut $rel
+            New-Item -ItemType Directory -Force (Split-Path $dest) | Out-Null
+            New-Item -ItemType HardLink -Path $dest -Target $_.FullName -ErrorAction Stop | Out-Null
+        }
+        foreach ($name in $patched) { Copy-Item "$cookedIn\$name" $cookedOut -ErrorAction SilentlyContinue }
+        $linked = $true
+    } catch {
+        Write-Warning "Hardlinks failed ($($_.Exception.Message)); copying instead. -Out must be on the same drive as -Game."
+        Remove-Item $cookedOut -Recurse -Force; New-Item -ItemType Directory -Force $cookedOut | Out-Null
+    }
+}
+if (-not $linked) {
+    robocopy $cookedIn $cookedOut *.upk *.bin *.udk *.bnk *.ebnk *.py /XD mods Backups .hebnix-menu-map /NFL /NDL /NJH /NP /MT:16 | Out-Null
+    if ($LASTEXITCODE -ge 8) { throw "robocopy failed ($LASTEXITCODE)" }
+}
+& $py -X utf8 -I "$PSScriptRoot\patch_upk.py" $cookedIn $cookedOut $Map
 if ($LASTEXITCODE) { throw 'package patch failed' }
-$py -X utf8 -I "$PSScriptRoot\patch_exe.py" "$Game\Binaries\Win64\RocketLeague.exe" "$Out\Binaries\Win64\RocketLeague_Server.exe"
+& $py -X utf8 -I "$PSScriptRoot\patch_exe.py" "$Game\Binaries\Win64\RocketLeague.exe" "$Out\Binaries\Win64\RocketLeague_Server.exe"
 if ($LASTEXITCODE) { throw 'exe patch failed' }
 Set-Content "$Out\.rl-server-copy" $Map   # the map baked into this copy
 "Server copy ready: $Out   start it with .\run.ps1 -Dir '$Out' -Map $Map"
