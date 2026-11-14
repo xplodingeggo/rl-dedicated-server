@@ -94,7 +94,7 @@ if (-not $Map) { $Map = Ask 'map the server starts on' 'Stadium_P' }
 @("GAME_DIR=$Game", "OUT_DIR=$Out", "MAP=$Map", "LINK=$([int](-not $NoLink))", "PYTHON=$env:PYTHON") | Set-Content "$Repo\server.conf"
 Write-Host "saved choices to $Repo\server.conf"
 Push-Location $Repo
-try { & .\setup.ps1 -Game $Game -Out $Out -Map $Map -Link:(-not $NoLink) } finally { Pop-Location }
+try { & .\setup.ps1 -Game $Game -Out $Out -Map $Map -NoLink:$NoLink } finally { Pop-Location }
 
 # ---- 6. start ----------------------------------------------------------------------------
 if ((Ask 'start the server now? (y/n)' 'n') -match '^[yY]') {

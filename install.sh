@@ -193,7 +193,7 @@ fi
 } > "$REPO/server.conf"
 say "saved choices to $REPO/server.conf"
 say "building the server copy (several minutes)"
-(cd "$REPO" && PYTHON="$PY" ./setup.sh ${LINK:+--link} "$GAME" "$OUT" "$MAP")
+(cd "$REPO" && PYTHON="$PY" ./setup.sh $([ -n "$LINK" ] || echo --no-link) "$GAME" "$OUT" "$MAP")
 
 # ---- 8. start ----------------------------------------------------------------------
 ip="$(ip -4 route get 1 2>/dev/null | awk '{for (i = 1; i < NF; i++) if ($i == "src") { print $(i + 1); exit }}')"

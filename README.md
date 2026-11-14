@@ -28,7 +28,7 @@ Skip the questions on Linux with `--game DIR --out DIR --map NAME --wine PATH --
 
 Only `ProjectX.upk` and `TAGame.upk` are changed. The other ~10.5 GB of the server copy are identical to the game's files, so the installer hardlinks them instead of copying: the copy takes about 0.5 GB. This works when the server copy is on the same drive as the game. On another drive, setup copies the files instead, with no questions asked.
 
-Running `setup.ps1` / `setup.sh` yourself copies by default; add `-Link` / `--link` to hardlink. To make the installer copy anyway, pass `--no-link` (`-NoLink` on Windows).
+`setup.ps1` / `setup.sh` behave the same way when you run them yourself. To always copy, pass `--no-link` (`-NoLink` on Windows) to either the installer or setup.
 
 - The two patched packages are always real copies. Writing through a link would change your game install.
 - A hardlink is the same file, not a second copy. A game update or a mod manager that edits a package in place changes the server's copy too. Run setup again after a game update.

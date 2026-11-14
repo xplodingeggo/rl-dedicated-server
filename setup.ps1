@@ -1,13 +1,13 @@
 # Build a private server copy of the game. Your real install is only read, never modified.
-#   .\setup.ps1 -Game 'C:\Program Files (x86)\Steam\steamapps\common\rocketleague' [-Out .\game] [-Map Stadium_P] [-Link]
-# -Link: hardlink the unchanged packages from the game folder instead of copying them (saves ~10.5 GB). Needs -Out on the same
-# drive as -Game; otherwise it falls back to copying. The two packages the patcher writes are always real copies.
+#   .\setup.ps1 -Game 'C:\Program Files (x86)\Steam\steamapps\common\rocketleague' [-Out .\game] [-Map Stadium_P] [-NoLink]
+# The unchanged packages are hardlinked from the game folder instead of copied (saves ~10.5 GB). That needs -Out on the same
+# drive as -Game; otherwise setup copies them. -NoLink always copies. The two packages the patcher writes are always real copies.
 # Textures (.tfc) and audio streams (.wem/.ewem) are skipped: the server runs with -nullrhi -nosound (~11 GB instead of ~30).
 param(
     [Parameter(Mandatory)][string]$Game,
     [string]$Out = "$PSScriptRoot\game",
     [string]$Map = 'Stadium_P',
-    [switch]$Link
+    [switch]$NoLink
 )
 $ErrorActionPreference = 'Stop'
 $py = if ($env:PYTHON) { $env:PYTHON } else { 'python' }   # install.ps1 sets this to the repo's venv
@@ -29,7 +29,7 @@ Get-ChildItem "$Game\TAGame" -Force | ? { $_.Name -ne 'CookedPCConsole' } | % { 
 # The game scans CookedPCConsole recursively, so mod-manager folders are left out to avoid duplicate packages.
 $cookedIn = "$Game\TAGame\CookedPCConsole"; $cookedOut = "$Out\TAGame\CookedPCConsole"
 $linked = $false
-if ($Link) {
+if (-not $NoLink) {
     # patch_upk.py writes these two; writing through a hardlink would change the game install itself.
     $patched = 'ProjectX.upk', 'TAGame.upk'
     $skipDirs = 'mods', 'Backups', '.hebnix-menu-map'
@@ -45,7 +45,7 @@ if ($Link) {
         foreach ($name in $patched) { Copy-Item "$cookedIn\$name" $cookedOut -ErrorAction SilentlyContinue }
         $linked = $true
     } catch {
-        Write-Warning "Hardlinks failed ($($_.Exception.Message)); copying instead. -Out must be on the same drive as -Game."
+        Write-Host "Hardlinks are not possible here ($($_.Exception.Message)); copying instead."
         Remove-Item $cookedOut -Recurse -Force; New-Item -ItemType Directory -Force $cookedOut | Out-Null
     }
 }

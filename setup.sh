@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Build a private server copy of the game. Your real install is only read, never modified.
-#   ./setup.sh [--link] <game dir> [out dir, default ./game] [map, default MAP from server.conf or Stadium_P]
-# --link (or LINK=1 in server.conf): hardlink the unchanged packages from the game folder instead of copying them (saves
-# ~10.5 GB). Needs the out dir on the same file system as the game; otherwise it falls back to copying. The two packages
-# the patcher writes are always real copies.
+#   ./setup.sh [--no-link] <game dir> [out dir, default ./game] [map, default MAP from server.conf or Stadium_P]
+# The unchanged packages are hardlinked from the game folder instead of copied (saves ~10.5 GB). That needs the out dir on the
+# same file system as the game; otherwise setup copies them. --no-link (or LINK=0 in server.conf) always copies. The two
+# packages the patcher writes are always real copies.
 #   (no arguments: GAME_DIR and OUT_DIR from server.conf, written by install.sh)
 # e.g. ./setup.sh ~/.local/share/Steam/steamapps/common/rocketleague
 # PYTHON=/path/to/python picks the interpreter for the patchers (install.sh sets it to the repo's venv).
@@ -13,10 +13,10 @@ here="$(cd "$(dirname "$0")" && pwd)"
 py="${PYTHON:-python3}"
 # conf_get KEY: value of KEY=... in server.conf (empty when missing). Read as text, never sourced.
 conf_get() { [ -f "$here/server.conf" ] && grep -m1 "^$1=" "$here/server.conf" | cut -d= -f2- || true; }
-link=0; args=()
-for a in "$@"; do if [ "$a" = --link ]; then link=1; else args+=("$a"); fi; done
+link=1; args=()
+for a in "$@"; do if [ "$a" = --no-link ]; then link=0; else args+=("$a"); fi; done
 set -- "${args[@]+"${args[@]}"}"
-[ "$(conf_get LINK)" = 1 ] && link=1
+[ "$(conf_get LINK)" = 0 ] && link=0
 game="${1:-$(conf_get GAME_DIR)}"
 [ -n "$game" ] || { echo "usage: ./setup.sh <game dir> [out dir] [map]  (or run install.sh first)" >&2; exit 1; }
 out="${2:-$(conf_get OUT_DIR)}"
@@ -75,7 +75,7 @@ if [ "$link" = 1 ]; then
         linked=1
         grep -ziE "$patched" "$files" | (cd "$cooked" && xargs -0 -r cp --parents -t "$copy_to") || true
     else
-        echo "Hardlinks failed (the out dir must be on the same file system as the game); copying instead." >&2
+        echo "Hardlinks are not possible here (the out dir is on another file system); copying instead."
     fi
 fi
 [ "$linked" = 1 ] || (cd "$cooked" && xargs -0 -r cp --parents -t "$copy_to" < "$files")
