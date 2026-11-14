@@ -1,8 +1,8 @@
 # Paste-a-link installer for Windows. It asks a few questions, then builds the server copy.
 #   irm https://raw.githubusercontent.com/xplodingeggo/rl-dedicated-server/main/install.ps1 | iex
-# Skip the questions with parameters: -Repo, -Game, -Out, -Map, -Link, -Yes. Your real game install is only read.
+# Skip the questions with parameters: -Repo, -Game, -Out, -Map, -NoLink, -Yes. Your real game install is only read.
 # Not yet tested on Windows: the Linux installer (install.sh) is the one that has been run end to end.
-param([string]$Repo, [string]$Game, [string]$Out, [string]$Map, [switch]$Link, [switch]$Yes)
+param([string]$Repo, [string]$Game, [string]$Out, [string]$Map, [switch]$NoLink, [switch]$Yes)
 $ErrorActionPreference = 'Stop'
 $RepoUrl = 'https://github.com/xplodingeggo/rl-dedicated-server'
 
@@ -81,28 +81,20 @@ if (-not $Game) {
 if (-not (Is-Game $Game)) { throw "RocketLeague.exe not found under $Game\Binaries\Win64" }
 
 # ---- 4. server copy folder --------------------------------------------------------
-if (-not $Out) { $Out = Ask 'where to put the server copy (about 11 GB)' "$Repo\game" }
+if (-not $Out) { $Out = Ask 'where to put the server copy (about 11 GB, under 1 GB when it is on the same drive as the game)' "$Repo\game" }
 $existing = [IO.Path]::GetFullPath($Out)
 while (-not (Test-Path $existing)) { $existing = Split-Path $existing -Parent }
 $freeGb = [math]::Floor((Get-Item $existing).PSDrive.Free / 1GB)
-if ($freeGb -lt 12) { Write-Warning "only $freeGb GB free under $existing; the copy needs about 11 GB" }
-
-# ---- 4a. hardlinks (same drive only) ---------------------------------------------
-# Default is no: a hardlinked copy follows in-place edits of the game folder (a Steam update, a mod manager).
-$sameDrive = (Get-Item $existing).PSDrive.Name -eq (Get-Item $Game).PSDrive.Name
-if (-not $Link -and $sameDrive) {
-    $Link = (Ask 'hardlink the unchanged game files instead of copying them, saves about 10 GB (y/n)' 'n') -match '^[yY]'
-}
-if ($Link -and -not $sameDrive) { Write-Warning 'the server copy and the game are on different drives; hardlinks are not possible, copying instead'; $Link = $false }
+if ($freeGb -lt 12 -and ($NoLink -or (Get-Item $existing).PSDrive.Name -ne (Get-Item $Game).PSDrive.Name)) { Write-Warning "only $freeGb GB free under $existing; the copy needs about 11 GB" }
 
 # ---- 4b. starting map (baked into the copy; see README, Choosing the map) -----
 if (-not $Map) { $Map = Ask 'map the server starts on' 'Stadium_P' }
 
 # ---- 5. remember and build -----------------------------------------------------------
-@("GAME_DIR=$Game", "OUT_DIR=$Out", "MAP=$Map", "LINK=$([int][bool]$Link)", "PYTHON=$env:PYTHON") | Set-Content "$Repo\server.conf"
+@("GAME_DIR=$Game", "OUT_DIR=$Out", "MAP=$Map", "LINK=$([int](-not $NoLink))", "PYTHON=$env:PYTHON") | Set-Content "$Repo\server.conf"
 Write-Host "saved choices to $Repo\server.conf"
 Push-Location $Repo
-try { & .\setup.ps1 -Game $Game -Out $Out -Map $Map -Link:$Link } finally { Pop-Location }
+try { & .\setup.ps1 -Game $Game -Out $Out -Map $Map -Link:(-not $NoLink) } finally { Pop-Location }
 
 # ---- 6. start ----------------------------------------------------------------------------
 if ((Ask 'start the server now? (y/n)' 'n') -match '^[yY]') {

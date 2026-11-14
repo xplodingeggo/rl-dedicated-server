@@ -2,7 +2,7 @@
 # Paste-a-link installer for the Linux (Wine) setup. It asks a few questions, then builds the server copy.
 #   curl -fsSL https://raw.githubusercontent.com/xplodingeggo/rl-dedicated-server/main/install.sh | bash
 # Skip questions with flags (add --yes to take the first choice for anything not given):
-#   --repo DIR  --game DIR  --out DIR  --map NAME  --wine PATH  --prefix DIR  --link  --yes
+#   --repo DIR  --game DIR  --out DIR  --map NAME  --wine PATH  --prefix DIR  --no-link  --yes
 # Your real game install is only read. The server copy and the Wine prefix are the only things written.
 set -euo pipefail
 
@@ -12,7 +12,7 @@ MIN_FREE_GB=12
 die() { echo "error: $*" >&2; exit 1; }
 say() { printf '%s\n' "$*" >&2; }
 
-REPO=""; GAME=""; OUT=""; MAP=""; WINE=""; PREFIX=""; ASSUME_YES=""; LINK=""
+REPO=""; GAME=""; OUT=""; MAP=""; WINE=""; PREFIX=""; ASSUME_YES=""; LINK=1
 while [ $# -gt 0 ]; do
     case "$1" in
         --repo) REPO="$2"; shift 2 ;;
@@ -21,7 +21,7 @@ while [ $# -gt 0 ]; do
         --map) MAP="$2"; shift 2 ;;
         --wine) WINE="$2"; shift 2 ;;
         --prefix) PREFIX="$2"; shift 2 ;;
-        --link) LINK=1; shift ;;
+        --no-link) LINK=""; shift ;;
         --yes) ASSUME_YES=1; shift ;;
         *) die "unknown option: $1" ;;
     esac
@@ -113,19 +113,11 @@ GAME="$(realpath -m "$GAME")"
 is_game "$GAME" || die "RocketLeague.exe not found under $GAME/Binaries/Win64"
 
 # ---- 4. server copy folder ----------------------------------------------------
-[ -n "$OUT" ] || OUT="$(ask "where to put the server copy (about 11 GB)" "$REPO/game")"
+[ -n "$OUT" ] || OUT="$(ask "where to put the server copy (about 11 GB, under 1 GB when it is on the same drive as the game)" "$REPO/game")"
 OUT="$(realpath -m "$OUT")"
 p="$OUT"; while [ ! -d "$p" ]; do p="$(dirname "$p")"; done
 free="$(df -BG --output=avail "$p" | tail -1 | tr -dc '0-9')"
-[ "${free:-0}" -ge "$MIN_FREE_GB" ] || say "warning: only ${free} GB free under $p; the copy needs about 11 GB"
-
-# ---- 4a. hardlinks (same file system only) -------------------------------------
-# Default is no: a hardlinked copy follows in-place edits of the game folder (a Steam update, a mod manager).
-same_fs=""; [ "$(stat -c %d "$GAME")" = "$(stat -c %d "$p")" ] && same_fs=1
-if [ -z "$LINK" ] && [ -n "$same_fs" ]; then
-    case "$(ask "hardlink the unchanged game files instead of copying them, saves about 10 GB (y/n)" "n")" in y|Y) LINK=1 ;; esac
-fi
-if [ -n "$LINK" ] && [ -z "$same_fs" ]; then say "warning: the server copy and the game are on different file systems; hardlinks are not possible, copying instead"; LINK=""; fi
+[ "${free:-0}" -ge "$MIN_FREE_GB" ] || { [ -n "$LINK" ] && [ "$(stat -c %d "$GAME")" = "$(stat -c %d "$p")" ]; } || say "warning: only ${free} GB free under $p; the copy needs about 11 GB"
 
 # ---- 4b. starting map (baked into the copy; see README, Choosing the map) -----
 [ -n "$MAP" ] || MAP="$(ask "map the server starts on" "Stadium_P")"
